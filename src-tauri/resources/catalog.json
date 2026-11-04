@@ -1,5 +1,62 @@
 [
   {
+    "id": "power_plan_high_performance",
+    "nombre": "Plan de Energía: Alto Rendimiento (High Performance)",
+    "categoria": "energia",
+    "nivel": "seguro",
+    "evidencia": "verificada",
+    "target": {
+      "tipo": "power_plan",
+      "guid": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
+    },
+    "defecto": "381b4222-f694-41f0-9685-ff5bb260df2e",
+    "requiere_admin": true,
+    "requiere_reinicio": false,
+    "riesgo": "bajo",
+    "efecto_esperado": "Mantiene los núcleos listos para ráfagas inmediatas evitando caídas agresivas de frecuencia (P-states bajos) durante tiroteos.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "power_plan_ultimate",
+    "nombre": "Plan de Energía: Máximo Rendimiento (Ultimate Performance)",
+    "categoria": "energia",
+    "nivel": "seguro",
+    "evidencia": "verificada",
+    "target": {
+      "tipo": "power_plan",
+      "guid": "e9a42b02-d5df-448d-aa00-03f14749eb61"
+    },
+    "defecto": "381b4222-f694-41f0-9685-ff5bb260df2e",
+    "requiere_admin": true,
+    "requiere_reinicio": false,
+    "riesgo": "bajo",
+    "efecto_esperado": "Elimina micro-latencias de transición energética del hardware en equipos de escritorio competitivos (instanciado nativamente vía PowrProf).",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "usb_selective_suspend_off",
+    "nombre": "Desactivar Suspensión Selectiva de USB",
+    "categoria": "periferico",
+    "nivel": "seguro",
+    "evidencia": "verificada",
+    "target": {
+      "tipo": "power_setting",
+      "subgroup_guid": "2a737441-1930-4402-8d77-b2bebba308a3",
+      "setting_guid": "48e6b7a6-50f5-4782-a5d4-53bb8f07e226",
+      "ac_index": 0,
+      "dc_index": 0
+    },
+    "defecto": 1,
+    "requiere_admin": true,
+    "requiere_reinicio": false,
+    "riesgo": "bajo",
+    "efecto_esperado": "Impide que los controladores y receptores USB 2.4 GHz del ratón entren en estado de bajo consumo provocando retraso en el primer click o micro-cortes de polling.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
     "id": "game_mode_on",
     "nombre": "Windows Game Mode Activado",
     "categoria": "cpu",
@@ -17,7 +74,7 @@
     "requiere_admin": false,
     "requiere_reinicio": false,
     "riesgo": "bajo",
-    "efecto_esperado": "Prioriza recursos del planificador de Windows hacia el proceso del juego activo y reduce actividad de Windows Update en primer plano.",
+    "efecto_esperado": "Prioriza recursos del planificador de Windows hacia el juego activo, protege hilos críticos (especialmente en CPUs híbridas y X3D) y pausa Windows Update.",
     "aplica_a": ["win10", "win11"],
     "juego_protocolo": "ambos"
   },
@@ -39,7 +96,7 @@
     "requiere_admin": false,
     "requiere_reinicio": false,
     "riesgo": "bajo",
-    "efecto_esperado": "Elimina la captura continua de codificación de vídeo en GPU y facilita la presentación directa (Independent Flip) sin sobrecarga del DWM.",
+    "efecto_esperado": "Elimina la captura continua de vídeo en GPU y asegura que el juego opere en Hardware: Independent Flip sin sobrecarga del DWM.",
     "aplica_a": ["win10", "win11"],
     "juego_protocolo": "ambos"
   },
@@ -61,7 +118,365 @@
     "requiere_admin": true,
     "requiere_reinicio": false,
     "riesgo": "bajo",
-    "efecto_esperado": "Evita que Windows reduzca dinámicamente la frecuencia de reloj (EcoQoS) en hilos auxiliares asociados al juego o audio.",
+    "efecto_esperado": "Evita que Windows reduzca dinámicamente el reloj (EcoQoS) en hilos auxiliares asociados al motor del juego o audio.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "mmcss_system_responsiveness",
+    "nombre": "MMCSS SystemResponsiveness al 10%",
+    "categoria": "cpu",
+    "nivel": "avanzado",
+    "evidencia": "posible",
+    "target": {
+      "tipo": "registry",
+      "hive": "HKLM",
+      "ruta": "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile",
+      "valor": "SystemResponsiveness",
+      "dato": 10,
+      "tipo_dato": "DWORD"
+    },
+    "defecto": 20,
+    "requiere_admin": true,
+    "requiere_reinicio": false,
+    "riesgo": "bajo",
+    "efecto_esperado": "Reduce del 20% al 10% la cuota de CPU reservada para tareas de fondo de baja prioridad durante cargas multimedia/juego. Exige prueba A/B.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "mmcss_games_gpu_priority",
+    "nombre": "MMCSS Tasks\\Games: GPU Priority = 8",
+    "categoria": "gpu",
+    "nivel": "avanzado",
+    "evidencia": "posible",
+    "target": {
+      "tipo": "registry",
+      "hive": "HKLM",
+      "ruta": "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games",
+      "valor": "GPU Priority",
+      "dato": 8,
+      "tipo_dato": "DWORD"
+    },
+    "defecto": 8,
+    "requiere_admin": true,
+    "requiere_reinicio": false,
+    "riesgo": "bajo",
+    "efecto_esperado": "Asigna prioridad 8 en el planificador WDDM para procesos registrados bajo el perfil MMCSS Games. Exige prueba A/B.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "mmcss_games_priority",
+    "nombre": "MMCSS Tasks\\Games: Priority = 6",
+    "categoria": "cpu",
+    "nivel": "avanzado",
+    "evidencia": "posible",
+    "target": {
+      "tipo": "registry",
+      "hive": "HKLM",
+      "ruta": "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games",
+      "valor": "Priority",
+      "dato": 6,
+      "tipo_dato": "DWORD"
+    },
+    "defecto": 2,
+    "requiere_admin": true,
+    "requiere_reinicio": false,
+    "riesgo": "bajo",
+    "efecto_esperado": "Eleva de 2 a 6 la prioridad relativa de hilos MMCSS del perfil Games. Solo se conserva si mejora 1%/0.1% lows en prueba A/B.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "mmcss_games_scheduling_category",
+    "nombre": "MMCSS Tasks\\Games: Scheduling Category = High",
+    "categoria": "cpu",
+    "nivel": "avanzado",
+    "evidencia": "posible",
+    "target": {
+      "tipo": "registry",
+      "hive": "HKLM",
+      "ruta": "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile\\Tasks\\Games",
+      "valor": "Scheduling Category",
+      "dato": "High",
+      "tipo_dato": "SZ"
+    },
+    "defecto": "Medium",
+    "requiere_admin": true,
+    "requiere_reinicio": false,
+    "riesgo": "bajo",
+    "efecto_esperado": "Configura la categoría de planificación MMCSS de juegos en High. Requiere validación empírica A/B.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "mmcss_network_throttling_index",
+    "nombre": "Desactivar NetworkThrottlingIndex (0xFFFFFFFF)",
+    "categoria": "red",
+    "nivel": "avanzado",
+    "evidencia": "posible",
+    "target": {
+      "tipo": "registry",
+      "hive": "HKLM",
+      "ruta": "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile",
+      "valor": "NetworkThrottlingIndex",
+      "dato": 4294967295,
+      "tipo_dato": "DWORD"
+    },
+    "defecto": 10,
+    "requiere_admin": true,
+    "requiere_reinicio": true,
+    "riesgo": "medio",
+    "efecto_esperado": "Deshabilita el límite de procesamiento de 10 paquetes/ms de NDIS impuesto por MMCSS cuando corre audio/multimedia junto al juego. Exige prueba A/B.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "kernel_global_timer_resolution",
+    "nombre": "GlobalTimerResolutionRequests = 1 (Windows 11)",
+    "categoria": "cpu",
+    "nivel": "avanzado",
+    "evidencia": "posible",
+    "target": {
+      "tipo": "registry",
+      "hive": "HKLM",
+      "ruta": "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel",
+      "valor": "GlobalTimerResolutionRequests",
+      "dato": 1,
+      "tipo_dato": "DWORD"
+    },
+    "defecto": 0,
+    "requiere_admin": true,
+    "requiere_reinicio": true,
+    "riesgo": "bajo",
+    "efecto_esperado": "Restaura en Windows 11 el comportamiento global de solicitudes de alta resolución del reloj (0.5 ms / 1 ms) para hilos en segundo plano del motor. Exige prueba A/B.",
+    "aplica_a": ["win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "tcp_ack_frequency",
+    "nombre": "Desactivar Delayed ACK por Adaptador (TcpAckFrequency = 1)",
+    "categoria": "red",
+    "nivel": "avanzado",
+    "evidencia": "verificada",
+    "target": {
+      "tipo": "registry",
+      "hive": "HKLM",
+      "ruta": "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\{ADAPTER_GUID}",
+      "valor": "TcpAckFrequency",
+      "dato": 1,
+      "tipo_dato": "DWORD"
+    },
+    "defecto": 2,
+    "requiere_admin": true,
+    "requiere_reinicio": false,
+    "riesgo": "medio",
+    "efecto_esperado": "Envía confirmaciones ACK inmediatamente sin esperar 40-200 ms. SOLO aplicable a juegos TCP (MMOs/ARPGs); cero efecto en shooters UDP.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "tcp"
+  },
+  {
+    "id": "tcp_nodelay",
+    "nombre": "Desactivar Algoritmo de Nagle por Adaptador (TCPNoDelay = 1)",
+    "categoria": "red",
+    "nivel": "avanzado",
+    "evidencia": "verificada",
+    "target": {
+      "tipo": "registry",
+      "hive": "HKLM",
+      "ruta": "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\{ADAPTER_GUID}",
+      "valor": "TCPNoDelay",
+      "dato": 1,
+      "tipo_dato": "DWORD"
+    },
+    "defecto": 0,
+    "requiere_admin": true,
+    "requiere_reinicio": false,
+    "riesgo": "medio",
+    "efecto_esperado": "Evita agrupar paquetes pequeños salientes en conexiones TCP. SOLO se ofrece para juegos TCP; inútil en shooters competitivos UDP.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "tcp"
+  },
+  {
+    "id": "process_priority_high",
+    "nombre": "Prioridad Alta Dinámica por Proceso de Juego",
+    "categoria": "cpu",
+    "nivel": "avanzado",
+    "evidencia": "posible",
+    "target": {
+      "tipo": "process",
+      "accion": "priority_high",
+      "parametro": "HIGH_PRIORITY_CLASS"
+    },
+    "defecto": "NORMAL_PRIORITY_CLASS",
+    "requiere_admin": false,
+    "requiere_reinicio": false,
+    "riesgo": "bajo",
+    "efecto_esperado": "Aplica HIGH_PRIORITY_CLASS únicamente mientras el ejecutable del juego está abierto y lo revierte al cerrarlo (sin inyección ni lectura de memoria).",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "process_cpu_affinity",
+    "nombre": "CPU Sets / Afinidad por Juego (Solo CPUs Simétricas)",
+    "categoria": "cpu",
+    "nivel": "avanzado",
+    "evidencia": "posible",
+    "target": {
+      "tipo": "process",
+      "accion": "cpu_affinity",
+      "parametro": "SYMMETRIC_CORES_ONLY"
+    },
+    "defecto": "OS_DEFAULT",
+    "requiere_admin": false,
+    "requiere_reinicio": false,
+    "riesgo": "medio",
+    "efecto_esperado": "Aísla núcleos para el juego en CPUs simétricas. Se bloquea automáticamente si detecta arquitectura híbrida Intel (P/E-cores) o caché asimétrica AMD X3D.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "blocked_hpet_bcdedit",
+    "nombre": "Desactivar HPET / Modificar bcdedit (useplatformclock / disabledynamictick)",
+    "categoria": "cpu",
+    "nivel": "bloqueado",
+    "evidencia": "descartada",
+    "target": {
+      "tipo": "blocked",
+      "motivo_bloqueo": "Windows 10/11 usa el contador invariante del procesador (TSC) por defecto. Forzar bcdedit rompe la sincronización de tiempo del kernel, desestabiliza frametimes y puede impedir el arranque."
+    },
+    "defecto": "TSC nativo del SO",
+    "requiere_admin": true,
+    "requiere_reinicio": true,
+    "riesgo": "alto",
+    "efecto_esperado": "MITO DESCARTADO: Alterar bcdedit/HPET no reduce el input lag; en plataformas modernas degrada la precisión de QPC o introduce micro-stuttering severo.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "blocked_telemetry_services",
+    "nombre": "Eliminar o Deshabilitar Servicios de Telemetría (DiagTrack)",
+    "categoria": "cpu",
+    "nivel": "bloqueado",
+    "evidencia": "descartada",
+    "target": {
+      "tipo": "blocked",
+      "motivo_bloqueo": "La telemetría corre en prioridad de fondo mínima y no interviene en la ruta crítica click-to-photon ni en la cola de renderizado GPU. Romperla causa errores de sistema y actualizaciones."
+    },
+    "defecto": "Gestionado por Windows",
+    "requiere_admin": true,
+    "requiere_reinicio": true,
+    "riesgo": "medio",
+    "efecto_esperado": "MITO DESCARTADO: Las pruebas empíricas de frametime y latencia LDAT muestran 0.0 ms de diferencia al borrar telemetría.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "blocked_dns_changer",
+    "nombre": "Cambiar Servidores DNS para 'Reducir Ping o Mejorar Hitreg'",
+    "categoria": "red",
+    "nivel": "bloqueado",
+    "evidencia": "descartada",
+    "target": {
+      "tipo": "blocked",
+      "motivo_bloqueo": "El DNS solo traduce un dominio a IP una vez al abrir el launcher. Durante la partida los paquetes UDP van directo por IP numérica al servidor del juego."
+    },
+    "defecto": "DNS del ISP / Router",
+    "requiere_admin": true,
+    "requiere_reinicio": false,
+    "riesgo": "bajo",
+    "efecto_esperado": "MITO DESCARTADO: Ningún DNS (1.1.1.1 / 8.8.8.8) altera el enrutamiento BGP ni baja 1 solo milisegundo el RTT dentro de la partida.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "blocked_security_disabler",
+    "nombre": "Desactivar Windows Defender, Windows Update o Firewall",
+    "categoria": "cpu",
+    "nivel": "bloqueado",
+    "evidencia": "descartada",
+    "target": {
+      "tipo": "blocked",
+      "motivo_bloqueo": "Exponer el equipo a malware y rootkits compromete gravemente la seguridad y termina generando mucho más consumo de red/CPU oculto que la protección nativa."
+    },
+    "defecto": "Activo",
+    "requiere_admin": true,
+    "requiere_reinicio": true,
+    "riesgo": "alto",
+    "efecto_esperado": "BLOQUEADO POR SEGURIDAD: Game Mode ya pospone Windows Update durante el juego sin dejar el sistema indefenso.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "blocked_max_prerendered_frames",
+    "nombre": "Forzar MaxPreRenderedFrames en Registro de Windows",
+    "categoria": "gpu",
+    "nivel": "bloqueado",
+    "evidencia": "descartada",
+    "target": {
+      "tipo": "blocked",
+      "motivo_bloqueo": "En DirectX 12 y Vulkan el motor del juego controla su propia SwapChain; claves obsoletas de registro son ignoradas o causan frame pacing errático. La solución real es NVIDIA Reflex / AMD Anti-Lag 2."
+    },
+    "defecto": "Controlado por motor/driver",
+    "requiere_admin": true,
+    "requiere_reinicio": true,
+    "riesgo": "medio",
+    "efecto_esperado": "MITO OBSOLETO: Para vaciar la Render Queue de verdad se debe activar Reflex / Anti-Lag 2 en el menú del juego o limitar FPS bajo el refresco VRR.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "blocked_tcp_optimizer_global",
+    "nombre": "Presets Globales Agresivos estilo TCP Optimizer (RWIN / ECN / CTCP)",
+    "categoria": "red",
+    "nivel": "bloqueado",
+    "evidencia": "descartada",
+    "target": {
+      "tipo": "blocked",
+      "motivo_bloqueo": "Los shooters competitivos (CS2, Valorant, Warzone, Apex, Overwatch) transmiten posición y disparos sobre UDP, no TCP. Tocar el autotuning global de TCP degrada descargas y streams sin mejorar el hitreg."
+    },
+    "defecto": "Autotuning normal de Windows",
+    "requiere_admin": true,
+    "requiere_reinicio": true,
+    "riesgo": "alto",
+    "efecto_esperado": "MITO DESCARTADO: Desactivar Receive Window Auto-Tuning hunde el ancho de banda en fibra óptica y tiene efecto nulo sobre paquetes UDP del juego.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "udp"
+  },
+  {
+    "id": "blocked_ram_cleaners",
+    "nombre": "Limpiadores Periódicos de RAM / EmptyWorkingSet ('Game Boosters')",
+    "categoria": "cpu",
+    "nivel": "bloqueado",
+    "evidencia": "descartada",
+    "target": {
+      "tipo": "blocked",
+      "motivo_bloqueo": "Vaciar la Standby List o el Working Set expulsa texturas y código en caché de la RAM hacia el SSD, provocando hard page faults y tirones severos (0.1% lows hundidos) en pleno tiroteo."
+    },
+    "defecto": "Gestión de memoria nativa",
+    "requiere_admin": true,
+    "requiere_reinicio": false,
+    "riesgo": "alto",
+    "efecto_esperado": "CONTRAPRODUCENTE: 'Liberar RAM' vacía la caché útil y fuerza lecturas de disco en mitad del combate generando stuttering.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "blocked_kill_services",
+    "nombre": "Cerrar Servicios del Sistema Windows Masivamente",
+    "categoria": "cpu",
+    "nivel": "bloqueado",
+    "evidencia": "descartada",
+    "target": {
+      "tipo": "blocked",
+      "motivo_bloqueo": "Matar servicios del SO rompe dependencias de Audio, Xbox Networking, Anti-Cheats (Vanguard/EAC/RICOCHET) y programación MMCSS sin reducir la latencia real de renderizado."
+    },
+    "defecto": "Servicios estándar del SO",
+    "requiere_admin": true,
+    "requiere_reinicio": true,
+    "riesgo": "alto",
+    "efecto_esperado": "BLOQUEADO: Práctica típica de 'game boosters' que causa cierres inesperados y desconexiones de anti-cheat sin mejora medible.",
     "aplica_a": ["win10", "win11"],
     "juego_protocolo": "ambos"
   }

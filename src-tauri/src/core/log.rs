@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::Utc;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -79,7 +81,7 @@ pub fn list_recent_changes(db: &Database, limit: u32) -> AppResult<Vec<ChangeLog
                     previous_value: row.get(5)?,
                     new_value: row.get(6)?,
                     verified: verified_int != 0,
-                    details: row.get(7 + 1)?,
+                    details: row.get(8)?,
                 })
             })
             .map_err(|e| AppError::Database(format!("Error leyendo historial de cambios: {e}")))?;
@@ -91,5 +93,42 @@ pub fn list_recent_changes(db: &Database, limit: u32) -> AppResult<Vec<ChangeLog
             );
         }
         Ok(entries)
+    })
+}
+
+/// Devuelve los `tweak_id` con registros `APPLY` en SQLite en orden LIFO (del más reciente al más antiguo),
+/// utilizado por "Revertir todo" para deshacer los cambios respetando el orden inverso de aplicación.
+pub fn list_applied_tweak_ids_lifo(db: &Database) -> AppResult<Vec<String>> {
+    db.with_conn(|conn| {
+        let mut stmt = conn
+            .prepare(
+                "
+                SELECT tweak_id
+                FROM change_logs
+                WHERE action = 'APPLY'
+                ORDER BY id DESC
+                ",
+            )
+            .map_err(|e| {
+                AppError::Database(format!(
+                    "Error preparando consulta LIFO de historial para Revertir todo: {e}"
+                ))
+            })?;
+
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| AppError::Database(format!("Error consultando historial APPLY: {e}")))?;
+
+        let mut ordered_unique = Vec::new();
+        let mut seen = HashSet::new();
+
+        for row in rows {
+            let tid = row.map_err(|e| AppError::Database(format!("Fila inválida: {e}")))?;
+            if seen.insert(tid.clone()) {
+                ordered_unique.push(tid);
+            }
+        }
+
+        Ok(ordered_unique)
     })
 }

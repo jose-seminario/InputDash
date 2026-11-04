@@ -1,7 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  BackupSnapshot,
   ChangeLogEntry,
   MutationOutcome,
+  PresetId,
+  PresetOutcome,
+  RevertAllOutcome,
+  SimulationItem,
   StructuredBackendError,
   TweakStatusView,
 } from "../types/tweak";
@@ -36,10 +41,34 @@ export async function ipcApplyTweak(tweakId: string): Promise<MutationOutcome> {
   return invoke<MutationOutcome>("apply_tweak", { tweakId });
 }
 
+export async function ipcApplyPreset(presetId: PresetId): Promise<PresetOutcome> {
+  return invoke<PresetOutcome>("apply_preset", { presetId });
+}
+
 export async function ipcRevertTweak(tweakId: string): Promise<MutationOutcome> {
   return invoke<MutationOutcome>("revert_tweak", { tweakId });
 }
 
-export async function ipcGetChangeLogs(limit = 50): Promise<ChangeLogEntry[]> {
+export async function ipcRevertAllTweaks(): Promise<RevertAllOutcome> {
+  return invoke<RevertAllOutcome>("revert_all_tweaks");
+}
+
+export async function ipcSimulateTweaks(tweakIds: string[]): Promise<SimulationItem[]> {
+  return invoke<SimulationItem[]>("simulate_tweaks", { tweakIds });
+}
+
+export async function ipcSimulatePreset(presetId: PresetId): Promise<SimulationItem[]> {
+  return invoke<SimulationItem[]>("simulate_preset", { presetId });
+}
+
+export async function ipcCreateRestorePoint(): Promise<string> {
+  return invoke<string>("create_restore_point");
+}
+
+export async function ipcGetActiveBackups(): Promise<BackupSnapshot[]> {
+  return invoke<BackupSnapshot[]>("get_active_backups");
+}
+
+export async function ipcGetChangeLogs(limit = 100): Promise<ChangeLogEntry[]> {
   return invoke<ChangeLogEntry[]>("get_change_logs", { limit });
 }

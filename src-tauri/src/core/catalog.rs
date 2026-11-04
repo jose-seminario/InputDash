@@ -48,7 +48,7 @@ pub enum GameProtocol {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "tipo", rename_all = "lowercase")]
+#[serde(tag = "tipo", rename_all = "snake_case")]
 pub enum TweakTarget {
     Registry {
         hive: RegistryHive,
@@ -56,6 +56,22 @@ pub enum TweakTarget {
         valor: String,
         dato: serde_json::Value,
         tipo_dato: RegistryValueKind,
+    },
+    PowerPlan {
+        guid: String,
+    },
+    PowerSetting {
+        subgroup_guid: String,
+        setting_guid: String,
+        ac_index: u32,
+        dc_index: u32,
+    },
+    Process {
+        accion: String,
+        parametro: String,
+    },
+    Blocked {
+        motivo_bloqueo: String,
     },
 }
 
@@ -77,18 +93,45 @@ pub struct TweakDefinition {
 }
 
 impl TweakDefinition {
-    pub fn target_registry_data(&self) -> AppResult<(RegistryHive, &str, &str, RegistryData)> {
+    pub fn parse_registry_target(
+        &self,
+        hive: RegistryHive,
+        tipo_dato: RegistryValueKind,
+        dato: &serde_json::Value,
+    ) -> AppResult<(RegistryHive, RegistryData)> {
+        let parsed = json_to_registry_data(&self.id, tipo_dato, dato)?;
+        Ok((hive, parsed))
+    }
+
+    pub fn target_summary(&self) -> String {
         match &self.target {
             TweakTarget::Registry {
-                hive,
-                ruta,
-                valor,
-                dato,
-                tipo_dato,
-            } => {
-                let parsed = json_to_registry_data(&self.id, *tipo_dato, dato)?;
-                Ok((*hive, ruta.as_str(), valor.as_str(), parsed))
+                hive, ruta, valor, ..
+            } => format!("{}\\{}\\{}", hive.as_str(), ruta, valor),
+            TweakTarget::PowerPlan { guid } => format!("PowrProf Plan GUID: {guid}"),
+            TweakTarget::PowerSetting {
+                subgroup_guid,
+                setting_guid,
+                ..
+            } => format!("PowrProf Subgrupo {subgroup_guid} :: Ajuste {setting_guid}"),
+            TweakTarget::Process { accion, parametro } => {
+                format!("Win32 Proceso ({accion} -> {parametro})")
             }
+            TweakTarget::Blocked { .. } => "Bloqueado por arquitectura de seguridad".to_string(),
+        }
+    }
+
+    pub fn target_expected_display(&self) -> String {
+        match &self.target {
+            TweakTarget::Registry {
+                dato, tipo_dato, ..
+            } => format!("{dato} ({tipo_dato:?})"),
+            TweakTarget::PowerPlan { guid } => format!("Activo ({guid})"),
+            TweakTarget::PowerSetting {
+                ac_index, dc_index, ..
+            } => format!("AC={ac_index}, DC={dc_index}"),
+            TweakTarget::Process { parametro, .. } => parametro.clone(),
+            TweakTarget::Blocked { .. } => "No aplicable".to_string(),
         }
     }
 }

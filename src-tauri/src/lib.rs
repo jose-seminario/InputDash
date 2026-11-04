@@ -31,7 +31,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_tweaks,
             commands::apply_tweak,
+            commands::apply_preset,
             commands::revert_tweak,
+            commands::revert_all_tweaks,
+            commands::simulate_tweaks,
+            commands::simulate_preset,
+            commands::create_restore_point,
+            commands::get_active_backups,
             commands::get_change_logs,
         ])
         .run(tauri::generate_context!())

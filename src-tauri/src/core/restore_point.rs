@@ -24,9 +24,6 @@ impl RestorePointManager {
         }
     }
 
-    /// Intenta crear un Punto de Restauración nativo vía `srclient.dll` (`SRSetRestorePointW`)
-    /// en la primera modificación de la sesión. Si Restaurar Sistema está desactivado en el SO,
-    /// devuelve `SkippedWarning` para registrar el evento sin abortar la transacción.
     pub fn ensure_first_time(&self, description: &str) -> RestorePointOutcome {
         let mut guard = self
             .created_in_session
@@ -53,6 +50,18 @@ impl RestorePointManager {
                 reason: other.to_string(),
             },
         }
+    }
+
+    /// Invocación explícita desde la pantalla de Seguridad.
+    /// Si Restaurar Sistema está desactivado o falla, devuelve el error explícito a la UI.
+    pub fn create_manual(&self, description: &str) -> AppResult<()> {
+        create_windows_restore_point(description)?;
+        let mut guard = self
+            .created_in_session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *guard = true;
+        Ok(())
     }
 }
 
@@ -143,7 +152,8 @@ fn create_windows_restore_point(description: &str) -> AppResult<()> {
                     .to_string()
             }
             ERROR_ACCESS_DENIED_CODE => {
-                "Permisos insuficientes al invocar SRSetRestorePointW".to_string()
+                "Permisos insuficientes al invocar SRSetRestorePointW (ejecuta como Administrador)"
+                    .to_string()
             }
             other => format!("SRSetRestorePointW devolvió código de estado Win32 {other}"),
         };

@@ -9,7 +9,6 @@ struct AllowedRegistryEntry {
 }
 
 /// Allowlist cerrada de claves del Registro permitidas por InputDash.
-/// Cualquier intento de lectura/escritura fuera de esta lista es rechazado antes de tocar Win32.
 const ALLOWLIST_EXACT: &[AllowedRegistryEntry] = &[
     // Seguros
     AllowedRegistryEntry {
@@ -27,7 +26,7 @@ const ALLOWLIST_EXACT: &[AllowedRegistryEntry] = &[
         subkey: "SYSTEM\\CurrentControlSet\\Control\\Power\\PowerThrottling",
         value_name: "PowerThrottlingOff",
     },
-    // Avanzados (preparados en allowlist cerrada para etapas posteriores con validación A/B)
+    // Avanzados (requieren A/B en Etapa 5)
     AllowedRegistryEntry {
         hive: RegistryHive::HKLM,
         subkey: "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile",
@@ -60,6 +59,18 @@ const ALLOWLIST_EXACT: &[AllowedRegistryEntry] = &[
     },
 ];
 
+/// Allowlist cerrada de planes de energía permitidos (High Performance y Ultimate Performance).
+const ALLOWLIST_POWER_PLANS: &[&str] = &[
+    "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
+    "e9a42b02-d5df-448d-aa00-03f14749eb61",
+];
+
+/// Allowlist cerrada de subgrupo/ajuste PowrProf (USB Selective Suspend).
+const ALLOWLIST_POWER_SETTINGS: &[(&str, &str)] = &[(
+    "2a737441-1930-4402-8d77-b2bebba308a3",
+    "48e6b7a6-50f5-4782-a5d4-53bb8f07e226",
+)];
+
 /// Patrones explícitamente prohibidos por seguridad y estabilidad del sistema.
 const FORBIDDEN_KEYWORDS: &[&str] = &[
     "windows defender",
@@ -84,6 +95,9 @@ fn is_tcpip_adapter_nagle_target(hive: RegistryHive, subkey: &str, value_name: &
         return false;
     }
     let guid_inner = &subkey[PREFIX.len()..subkey.len() - 1];
+    if guid_inner == "ADAPTER_GUID" {
+        return value_name == "TcpAckFrequency" || value_name == "TCPNoDelay";
+    }
     let valid_guid_chars = !guid_inner.is_empty()
         && !guid_inner.contains('\\')
         && guid_inner
@@ -131,10 +145,36 @@ pub fn validate_registry_location(
     }
 }
 
+pub fn validate_power_plan_guid(guid: &str) -> AppResult<()> {
+    let allowed = ALLOWLIST_POWER_PLANS
+        .iter()
+        .any(|g| g.eq_ignore_ascii_case(guid));
+    if allowed {
+        Ok(())
+    } else {
+        Err(AppError::GuardViolation(format!(
+            "GUID de plan de energía fuera de la allowlist cerrada: {guid}"
+        )))
+    }
+}
+
+pub fn validate_power_setting_guids(subgroup: &str, setting: &str) -> AppResult<()> {
+    let allowed = ALLOWLIST_POWER_SETTINGS.iter().any(|(sg, st)| {
+        sg.eq_ignore_ascii_case(subgroup) && st.eq_ignore_ascii_case(setting)
+    });
+    if allowed {
+        Ok(())
+    } else {
+        Err(AppError::GuardViolation(format!(
+            "Ajuste PowrProf fuera de la allowlist cerrada: {subgroup} / {setting}"
+        )))
+    }
+}
+
 pub fn check_can_apply(tweak: &TweakDefinition) -> AppResult<()> {
     if tweak.nivel == TweakLevel::Bloqueado {
         return Err(AppError::GuardViolation(format!(
-            "El tweak '{}' ({}) está catalogado como BLOQUEADO y no puede aplicarse.",
+            "El tweak '{}' ({}) está catalogado como BLOQUEADO y jamás puede aplicarse.",
             tweak.nombre, tweak.id
         )));
     }
@@ -143,20 +183,27 @@ pub fn check_can_apply(tweak: &TweakDefinition) -> AppResult<()> {
         TweakTarget::Registry {
             hive, ruta, valor, ..
         } => validate_registry_location(*hive, ruta, valor),
+        TweakTarget::PowerPlan { guid } => validate_power_plan_guid(guid),
+        TweakTarget::PowerSetting {
+            subgroup_guid,
+            setting_guid,
+            ..
+        } => validate_power_setting_guids(subgroup_guid, setting_guid),
+        TweakTarget::Process { accion, .. } => {
+            if accion == "priority_high" || accion == "cpu_affinity" {
+                Ok(())
+            } else {
+                Err(AppError::GuardViolation(format!(
+                    "Acción de proceso no permitida: {accion}"
+                )))
+            }
+        }
+        TweakTarget::Blocked { motivo_bloqueo } => Err(AppError::GuardViolation(format!(
+            "Tweak bloqueado: {motivo_bloqueo}"
+        ))),
     }
 }
 
 pub fn check_can_revert(tweak: &TweakDefinition) -> AppResult<()> {
-    if tweak.nivel == TweakLevel::Bloqueado {
-        return Err(AppError::GuardViolation(format!(
-            "El tweak '{}' ({}) está bloqueado y no admite operaciones.",
-            tweak.nombre, tweak.id
-        )));
-    }
-
-    match &tweak.target {
-        TweakTarget::Registry {
-            hive, ruta, valor, ..
-        } => validate_registry_location(*hive, ruta, valor),
-    }
+    check_can_apply(tweak)
 }

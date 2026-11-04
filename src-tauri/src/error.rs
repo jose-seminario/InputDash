@@ -6,11 +6,27 @@ pub enum AppError {
     #[error("Bloqueado por seguridad (Guard): {0}")]
     GuardViolation(String),
 
+    #[error("{0}")]
+    RequiresAbTest(String),
+
+    #[error("Funcionalidad programada para etapa posterior: {0}")]
+    StagePending(String),
+
     #[error("Tweak no encontrado en el catálogo: {0}")]
     TweakNotFound(String),
 
+    #[error("Preset no reconocido: {0}")]
+    InvalidPreset(String),
+
     #[error("Error en API nativa de Registro ({operation}, código Win32 {win32_code:#010X}): {detail}")]
     RegistryApi {
+        operation: String,
+        win32_code: u32,
+        detail: String,
+    },
+
+    #[error("Error en API nativa de Energía PowrProf ({operation}, código Win32 {win32_code:#010X}): {detail}")]
+    PowerApi {
         operation: String,
         win32_code: u32,
         detail: String,
@@ -59,8 +75,12 @@ impl AppError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::GuardViolation(_) => "GUARD_VIOLATION",
+            Self::RequiresAbTest(_) => "REQUIRES_AB_TEST",
+            Self::StagePending(_) => "STAGE_PENDING",
             Self::TweakNotFound(_) => "TWEAK_NOT_FOUND",
+            Self::InvalidPreset(_) => "INVALID_PRESET",
             Self::RegistryApi { .. } => "REGISTRY_API_ERROR",
+            Self::PowerApi { .. } => "POWER_API_ERROR",
             Self::Backup(_) => "BACKUP_ERROR",
             Self::RestorePoint { .. } => "RESTORE_POINT_ERROR",
             Self::VerificationMismatch { .. } => "VERIFICATION_MISMATCH",
