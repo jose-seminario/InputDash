@@ -5,7 +5,7 @@ use crate::core::log::{self, ChangeLogEntry};
 use crate::error::{AppError, AppResult};
 use crate::AppState;
 
-fn require_engine(state: &State<'_, AppState>) -> AppResult<&Engine> {
+fn require_engine<'a>(state: &'a State<'a, AppState>) -> AppResult<&'a Engine> {
     match &state.engine {
         Ok(engine) => Ok(engine),
         Err(init_err) => Err(AppError::Database(format!(

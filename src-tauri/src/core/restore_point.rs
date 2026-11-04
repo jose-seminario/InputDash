@@ -58,8 +58,8 @@ impl RestorePointManager {
 
 #[cfg(windows)]
 fn create_windows_restore_point(description: &str) -> AppResult<()> {
-    use windows::core::{s, w};
-    use windows::Win32::Foundation::{FreeLibrary, BOOL, HMODULE};
+    use windows::core::{s, w, BOOL};
+    use windows::Win32::Foundation::{FreeLibrary, HMODULE};
     use windows::Win32::System::LibraryLoader::{
         GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32,
     };
