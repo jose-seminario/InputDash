@@ -1,0 +1,60 @@
+name: Build Portable InputDash (Windows x64)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-windows-portable:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Audit zero external process APIs in Rust sources
+        shell: pwsh
+        run: |
+          $forbidden = @("Command" + "::new", "std::" + "process")
+          foreach ($pattern in $forbidden) {
+            $matches = Select-String -Path "src-tauri/src/**/*.rs" -Pattern $pattern -SimpleMatch
+            if ($matches) {
+              Write-Error "Forbidden pattern detected: $pattern"
+              $matches | Format-Table -AutoSize
+              exit 1
+            }
+          }
+          Write-Host "Audit passed: zero external process invocations found."
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust stable (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies & build UI
+        run: |
+          npm install
+          npm run build
+
+      - name: Build portable executable (Release)
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+
+      - name: Upload Portable InputDash.exe Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: InputDash-Portable-Win64
+          path: src-tauri/target/release/inputdash.exe
+          if-no-files-found: error

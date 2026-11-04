@@ -1,0 +1,37 @@
+[package]
+name = "inputdash"
+version = "0.1.0"
+description = "Optimizador y medidor portable de input lag para Windows 10/11"
+authors = ["InputDash Team"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "inputdash_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.2", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.32", features = ["bundled"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2.0"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Registry",
+  "Win32_System_LibraryLoader",
+] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

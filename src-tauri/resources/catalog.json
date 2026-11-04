@@ -1,0 +1,68 @@
+[
+  {
+    "id": "game_mode_on",
+    "nombre": "Windows Game Mode Activado",
+    "categoria": "cpu",
+    "nivel": "seguro",
+    "evidencia": "verificada",
+    "target": {
+      "tipo": "registry",
+      "hive": "HKCU",
+      "ruta": "Software\\Microsoft\\GameBar",
+      "valor": "AutoGameModeEnabled",
+      "dato": 1,
+      "tipo_dato": "DWORD"
+    },
+    "defecto": 1,
+    "requiere_admin": false,
+    "requiere_reinicio": false,
+    "riesgo": "bajo",
+    "efecto_esperado": "Prioriza recursos del planificador de Windows hacia el proceso del juego activo y reduce actividad de Windows Update en primer plano.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "game_dvr_off",
+    "nombre": "Desactivar Grabación en Segundo Plano (Game DVR)",
+    "categoria": "gpu",
+    "nivel": "seguro",
+    "evidencia": "verificada",
+    "target": {
+      "tipo": "registry",
+      "hive": "HKCU",
+      "ruta": "System\\GameConfigStore",
+      "valor": "GameDVR_Enabled",
+      "dato": 0,
+      "tipo_dato": "DWORD"
+    },
+    "defecto": 1,
+    "requiere_admin": false,
+    "requiere_reinicio": false,
+    "riesgo": "bajo",
+    "efecto_esperado": "Elimina la captura continua de codificación de vídeo en GPU y facilita la presentación directa (Independent Flip) sin sobrecarga del DWM.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  },
+  {
+    "id": "power_throttling_off",
+    "nombre": "Desactivar Power Throttling del Procesador",
+    "categoria": "energia",
+    "nivel": "seguro",
+    "evidencia": "verificada",
+    "target": {
+      "tipo": "registry",
+      "hive": "HKLM",
+      "ruta": "SYSTEM\\CurrentControlSet\\Control\\Power\\PowerThrottling",
+      "valor": "PowerThrottlingOff",
+      "dato": 1,
+      "tipo_dato": "DWORD"
+    },
+    "defecto": 0,
+    "requiere_admin": true,
+    "requiere_reinicio": false,
+    "riesgo": "bajo",
+    "efecto_esperado": "Evita que Windows reduzca dinámicamente la frecuencia de reloj (EcoQoS) en hilos auxiliares asociados al juego o audio.",
+    "aplica_a": ["win10", "win11"],
+    "juego_protocolo": "ambos"
+  }
+]
