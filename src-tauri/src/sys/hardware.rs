@@ -31,6 +31,8 @@ pub struct HidDeviceInfo {
     pub transport: String,
     pub device_type: String,
     pub raw_path: String,
+    pub usb_port_speed: String,
+    pub port_recommendation: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +41,7 @@ pub struct HardwareDiagnosticInfo {
     pub monitor: MonitorInfo,
     pub mice: Vec<HidDeviceInfo>,
     pub keyboards: Vec<HidDeviceInfo>,
+    pub hvci_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -296,6 +299,11 @@ extern "system" {
         BufferLen: u32,
         ulFlags: u32,
     ) -> u32;
+    fn CM_Locate_DevNodeW(
+        pdnDevInst: *mut u32,
+        pDeviceID: *const u16,
+        ulFlags: u32,
+    ) -> u32;
     fn CM_Get_Parent(
         pdnDevInst: *mut u32,
         dnDevInst: u32,
@@ -304,6 +312,91 @@ extern "system" {
 }
 
 // -----------------------------------------------------------------------------
+#[link(name = "kernel32")]
+extern "system" {
+    fn CreateFileW(
+        lpFileName: *const u16,
+        dwDesiredAccess: u32,
+        dwShareMode: u32,
+        lpSecurityAttributes: *const c_void,
+        dwCreationDisposition: u32,
+        dwFlagsAndAttributes: u32,
+        hTemplateFile: *mut c_void,
+    ) -> *mut c_void;
+    fn DeviceIoControl(
+        hDevice: *mut c_void,
+        dwIoControlCode: u32,
+        lpInBuffer: *const c_void,
+        nInBufferSize: u32,
+        lpOutBuffer: *mut c_void,
+        nOutBufferSize: u32,
+        lpBytesReturned: *mut u32,
+        lpOverlapped: *mut c_void,
+    ) -> i32;
+    fn CloseHandle(hObject: *mut c_void) -> i32;
+}
+
+const IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX: u32 = 0x0022041C;
+const IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX_V2: u32 = 0x0022045C;
+
+const FILE_SHARE_READ: u32 = 0x00000001;
+const FILE_SHARE_WRITE: u32 = 0x00000002;
+const OPEN_EXISTING: u32 = 3;
+const FILE_ATTRIBUTE_NORMAL: u32 = 0x00000080;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct USB_PROTOCOLS {
+    ul: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct USB_NODE_CONNECTION_INFORMATION_EX_V2_FLAGS {
+    ul: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct USB_NODE_CONNECTION_INFORMATION_EX_V2 {
+    ConnectionIndex: u32,
+    Length: u32,
+    SupportedUsbProtocols: USB_PROTOCOLS,
+    Flags: USB_NODE_CONNECTION_INFORMATION_EX_V2_FLAGS,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct USB_DEVICE_DESCRIPTOR {
+    bLength: u8,
+    bDescriptorType: u8,
+    bcdUSB: u16,
+    bDeviceClass: u8,
+    bDeviceSubClass: u8,
+    bDeviceProtocol: u8,
+    bMaxPacketSize0: u8,
+    idVendor: u16,
+    idProduct: u16,
+    bcdDevice: u16,
+    iManufacturer: u8,
+    iProduct: u8,
+    iSerialNumber: u8,
+    bNumConfigurations: u8,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct USB_NODE_CONNECTION_INFORMATION_EX {
+    ConnectionIndex: u32,
+    DeviceDescriptor: USB_DEVICE_DESCRIPTOR,
+    CurrentConfigurationValue: u8,
+    Speed: u8,
+    DeviceIsHub: u8,
+    DeviceAddress: u16,
+    NumberOfOpenPipes: u32,
+    ConnectionStatus: u32,
+}
+
 // Implementation: GPU
 // -----------------------------------------------------------------------------
 
@@ -625,6 +718,9 @@ pub fn detect_hid_devices() -> (Vec<HidDeviceInfo>, Vec<HidDeviceInfo>) {
     let mut mice = Vec::new();
     let mut keyboards = Vec::new();
     let mut seen_paths = HashSet::new();
+    let has_audio_contention = get_usb_topology_info()
+        .map(|t| t.any_contention_detected)
+        .unwrap_or(false);
 
     for dev in raw_list.iter().take(count as usize) {
         if dev.hDevice.is_null() {
@@ -674,6 +770,8 @@ pub fn detect_hid_devices() -> (Vec<HidDeviceInfo>, Vec<HidDeviceInfo>) {
         match dev.dwType {
             RIM_TYPEMOUSE => {
                 let friendly_name = friendly_mouse_name(&path, &vid, &transport);
+                let (usb_port_speed, port_recommendation) =
+                    detect_usb_port_speed_and_recommendation(&path, &transport, "mouse", has_audio_contention);
                 mice.push(HidDeviceInfo {
                     name: friendly_name,
                     vid,
@@ -681,10 +779,14 @@ pub fn detect_hid_devices() -> (Vec<HidDeviceInfo>, Vec<HidDeviceInfo>) {
                     transport,
                     device_type: "mouse".to_string(),
                     raw_path: path,
+                    usb_port_speed,
+                    port_recommendation,
                 });
             }
             RIM_TYPEKEYBOARD => {
                 let friendly_name = friendly_keyboard_name(&path, &vid, &transport);
+                let (usb_port_speed, port_recommendation) =
+                    detect_usb_port_speed_and_recommendation(&path, &transport, "keyboard", false);
                 keyboards.push(HidDeviceInfo {
                     name: friendly_name,
                     vid,
@@ -692,6 +794,8 @@ pub fn detect_hid_devices() -> (Vec<HidDeviceInfo>, Vec<HidDeviceInfo>) {
                     transport,
                     device_type: "keyboard".to_string(),
                     raw_path: path,
+                    usb_port_speed,
+                    port_recommendation,
                 });
             }
             _ => {}
@@ -791,16 +895,246 @@ fn friendly_keyboard_name(path: &str, vid: &str, transport: &str) -> String {
     }
 }
 
+pub fn is_hvci_enabled() -> bool {
+    use crate::sys::registry::{read_value, RegistryData, RegistryHive, RegistryState};
+    match read_value(
+        RegistryHive::HKLM,
+        "SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity",
+        "Enabled",
+    ) {
+        Ok(RegistryState::Present(RegistryData::Dword(val))) => val == 1,
+        _ => false,
+    }
+}
+
+fn detect_usb_port_speed_and_recommendation(
+    path: &str,
+    transport: &str,
+    device_type: &str,
+    has_audio_contention: bool,
+) -> (String, Option<String>) {
+    if transport != "USB" {
+        let speed = if transport == "Bluetooth" {
+            "Bluetooth (Inalámbrico)".to_string()
+        } else {
+            "N/A".to_string()
+        };
+
+        let recommendation = if device_type == "mouse" && transport == "Bluetooth" {
+            Some("⚠️ Ratón conectado por Bluetooth (limitado a ~125 Hz). Usa conexión por cable o dongle inalámbrico 2.4 GHz en un puerto USB 3.0 para juego competitivo.".to_string())
+        } else {
+            None
+        };
+
+        return (speed, recommendation);
+    }
+
+    let mut resolved_speed = "USB (No determinado)".to_string();
+    let mut is_superspeed = false;
+    let mut is_high_or_full_speed = false;
+
+    let mut clean_id = path.trim();
+    if let Some(stripped) = clean_id.strip_prefix("\\\\?\\") {
+        clean_id = stripped;
+    } else if let Some(stripped) = clean_id.strip_prefix("\\\\.\\") {
+        clean_id = stripped;
+    }
+    if let Some(pos) = clean_id.rfind("#{") {
+        clean_id = &clean_id[..pos];
+    }
+    let instance_id = clean_id.replace('#', "\\");
+    let instance_id_w: Vec<u16> = instance_id.encode_utf16().chain(std::iter::once(0)).collect();
+
+    let mut hid_devnode: u32 = 0;
+    let cr = unsafe { CM_Locate_DevNodeW(&mut hid_devnode, instance_id_w.as_ptr(), 0) };
+
+    if cr == 0 && hid_devnode != 0 {
+        let mut curr_node = hid_devnode;
+        let mut root_hub_id = String::new();
+        let mut parent_hub_id = String::new();
+        let mut depth = 0;
+
+        while depth < 8 {
+            let mut parent_node: u32 = 0;
+            let pr = unsafe { CM_Get_Parent(&mut parent_node, curr_node, 0) };
+            if pr != 0 || parent_node == 0 {
+                break;
+            }
+
+            let mut id_buf = [0u16; 512];
+            let id_res = unsafe { CM_Get_Device_IDW(parent_node, id_buf.as_mut_ptr(), 512, 0) };
+            if id_res == 0 {
+                let p_id = String::from_utf16_lossy(&id_buf)
+                    .trim_matches('\0')
+                    .trim()
+                    .to_string();
+                let upper = p_id.to_uppercase();
+
+                if parent_hub_id.is_empty() && (upper.contains("HUB") || upper.contains("USB")) {
+                    parent_hub_id = p_id.clone();
+                }
+                if upper.starts_with("USB\\ROOT_HUB") || upper.starts_with("PCI\\") {
+                    root_hub_id = p_id;
+                    break;
+                }
+            }
+
+            curr_node = parent_node;
+            depth += 1;
+        }
+
+        let mut ioctl_success = false;
+        if !parent_hub_id.is_empty() {
+            let hub_dev_path = format!("\\\\.\\{}", parent_hub_id.replace('\\', "#"));
+            let hub_path_w: Vec<u16> = hub_dev_path.encode_utf16().chain(std::iter::once(0)).collect();
+
+            let h_hub = unsafe {
+                CreateFileW(
+                    hub_path_w.as_ptr(),
+                    0,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    ptr::null(),
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    ptr::null_mut(),
+                )
+            };
+
+            if !h_hub.is_null() && h_hub != (-1isize as *mut c_void) {
+                for port_idx in 1..=32 {
+                    let mut info_v2 = USB_NODE_CONNECTION_INFORMATION_EX_V2 {
+                        ConnectionIndex: port_idx,
+                        Length: std::mem::size_of::<USB_NODE_CONNECTION_INFORMATION_EX_V2>() as u32,
+                        SupportedUsbProtocols: USB_PROTOCOLS { ul: 0 },
+                        Flags: USB_NODE_CONNECTION_INFORMATION_EX_V2_FLAGS { ul: 0 },
+                    };
+                    let mut bytes_ret = 0u32;
+                    let ok_v2 = unsafe {
+                        DeviceIoControl(
+                            h_hub,
+                            IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX_V2,
+                            &info_v2 as *const _ as *const c_void,
+                            std::mem::size_of::<USB_NODE_CONNECTION_INFORMATION_EX_V2>() as u32,
+                            &mut info_v2 as *mut _ as *mut c_void,
+                            std::mem::size_of::<USB_NODE_CONNECTION_INFORMATION_EX_V2>() as u32,
+                            &mut bytes_ret,
+                            ptr::null_mut(),
+                        )
+                    };
+
+                    if ok_v2 != 0 {
+                        if (info_v2.SupportedUsbProtocols.ul & (1 << 2)) != 0 {
+                            resolved_speed = "USB 3.0 (SuperSpeed)".to_string();
+                            is_superspeed = true;
+                            ioctl_success = true;
+                            break;
+                        } else if (info_v2.SupportedUsbProtocols.ul & (1 << 1)) != 0 {
+                            resolved_speed = "USB 2.0 (High Speed)".to_string();
+                            is_high_or_full_speed = true;
+                            ioctl_success = true;
+                            break;
+                        }
+                    }
+
+                    let mut info_ex = USB_NODE_CONNECTION_INFORMATION_EX {
+                        ConnectionIndex: port_idx,
+                        DeviceDescriptor: USB_DEVICE_DESCRIPTOR::default(),
+                        CurrentConfigurationValue: 0,
+                        Speed: 0,
+                        DeviceIsHub: 0,
+                        DeviceAddress: 0,
+                        NumberOfOpenPipes: 0,
+                        ConnectionStatus: 0,
+                    };
+                    let ok_ex = unsafe {
+                        DeviceIoControl(
+                            h_hub,
+                            IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX,
+                            &info_ex as *const _ as *const c_void,
+                            std::mem::size_of::<USB_NODE_CONNECTION_INFORMATION_EX>() as u32,
+                            &mut info_ex as *mut _ as *mut c_void,
+                            std::mem::size_of::<USB_NODE_CONNECTION_INFORMATION_EX>() as u32,
+                            &mut bytes_ret,
+                            ptr::null_mut(),
+                        )
+                    };
+
+                    if ok_ex != 0 && info_ex.ConnectionStatus == 1 {
+                        match info_ex.Speed {
+                            3 | 4 => {
+                                resolved_speed = "USB 3.0 (SuperSpeed)".to_string();
+                                is_superspeed = true;
+                                ioctl_success = true;
+                                break;
+                            }
+                            2 => {
+                                resolved_speed = "USB 2.0 (High Speed)".to_string();
+                                is_high_or_full_speed = true;
+                                ioctl_success = true;
+                                break;
+                            }
+                            1 => {
+                                resolved_speed = "USB 1.1 (Full Speed)".to_string();
+                                is_high_or_full_speed = true;
+                                ioctl_success = true;
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                unsafe {
+                    CloseHandle(h_hub);
+                }
+            }
+        }
+
+        if !ioctl_success {
+            let combined = format!("{parent_hub_id} {root_hub_id}").to_uppercase();
+            if combined.contains("ROOT_HUB30") || combined.contains("USB3") || combined.contains("XHCI") {
+                resolved_speed = "USB 3.0 (SuperSpeed)".to_string();
+                is_superspeed = true;
+            } else if combined.contains("ROOT_HUB20") || combined.contains("USB2") || combined.contains("EHCI") {
+                resolved_speed = "USB 2.0 (High Speed)".to_string();
+                is_high_or_full_speed = true;
+            } else if combined.contains("HUB") || combined.contains("USB") {
+                resolved_speed = "USB 2.0 (High Speed)".to_string();
+                is_high_or_full_speed = true;
+            }
+        }
+    }
+
+    let recommendation = if device_type == "mouse" {
+        if is_high_or_full_speed {
+            Some("⚠️ Tu ratón está en un puerto USB 2.0 (High Speed). Para evitar cuellos de botella con ratones de 1000 Hz o superior, conéctalo a un puerto USB 3.0 (SuperSpeed) trasero, directo a la placa base.".to_string())
+        } else if is_superspeed {
+            if has_audio_contention {
+                Some("⚠️ Tu ratón está en un puerto USB 3.0, pero comparte controlador raíz con un dispositivo de audio. Muévelo a otro puerto directo de la placa base para evitar jitter.".to_string())
+            } else {
+                Some("✅ Tu ratón está en un puerto USB 3.0 dedicado. Configuración óptima.".to_string())
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    (resolved_speed, recommendation)
+}
+
 pub fn get_hardware_diagnostic_info() -> HardwareDiagnosticInfo {
     let gpu = detect_gpu_info();
     let monitor = detect_monitor_info();
     let (mice, keyboards) = detect_hid_devices();
+    let hvci_enabled = is_hvci_enabled();
 
     HardwareDiagnosticInfo {
         gpu,
         monitor,
         mice,
         keyboards,
+        hvci_enabled,
     }
 }
 

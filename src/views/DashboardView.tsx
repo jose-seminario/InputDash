@@ -320,6 +320,17 @@ export function DashboardView() {
           </div>
         </div>
 
+        {hardware?.hvci_enabled && (
+          <div className="banner banner-warning" role="alert" style={{ marginTop: "12px", marginBottom: "16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%" }}>
+              <span style={{ fontSize: "18px" }}>⚠️</span>
+              <span>
+                <strong>Integridad de Memoria (HVCI) Activada:</strong> Esto protege tu PC, pero añade picos de latencia (micro-stutters). Revisa nuestra Guía In-Game para saber cómo desactivarla si usas esta PC solo para juegos.
+              </span>
+            </div>
+          </div>
+        )}
+
         {exportSuccessMsg && (
           <div className="banner banner-success" role="alert" style={{ marginTop: "10px" }}>
             <span>✓ {exportSuccessMsg}</span>
@@ -414,7 +425,25 @@ export function DashboardView() {
                     <span>
                       PID: <code className="meta-mono">{m.pid}</code>
                     </span>
+                    {m.usb_port_speed && m.usb_port_speed !== "N/A" && (
+                      <span>
+                        Puerto: <strong className="meta-mono">{m.usb_port_speed}</strong>
+                      </span>
+                    )}
                   </div>
+                  {m.port_recommendation && (
+                    <div
+                      className={`banner ${
+                        m.port_recommendation.startsWith("✅")
+                          ? "banner-success"
+                          : "banner-warning"
+                      }`}
+                      role="alert"
+                      style={{ marginTop: "8px", marginBottom: "4px", padding: "8px 12px" }}
+                    >
+                      <span style={{ fontSize: "13px" }}>{m.port_recommendation}</span>
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -442,6 +471,11 @@ export function DashboardView() {
                     <span>
                       PID: <code className="meta-mono">{k.pid}</code>
                     </span>
+                    {k.usb_port_speed && k.usb_port_speed !== "N/A" && (
+                      <span>
+                        Puerto: <strong className="meta-mono">{k.usb_port_speed}</strong>
+                      </span>
+                    )}
                   </div>
                 </div>
               ))
@@ -715,6 +749,44 @@ export function DashboardView() {
                         Considera conectarlo directamente a un puerto USB 3.0 trasero (directo al chipset/CPU) o usar una tarjeta PCIe USB.
                       </span>
                     </div>
+                  </div>
+                )}
+
+                {pollingResult.measured_hz >= 900 && pollingResult.measured_hz <= 1100 && (
+                  <div
+                    className="banner banner-success"
+                    role="alert"
+                    style={{ margin: "0 0 12px 0", textAlign: "left" }}
+                  >
+                    <span>
+                      💡 <strong>Consejo Empírico:</strong> 2000 Hz es el punto de equilibrio perfecto en Windows. Subir a 2000 Hz reduce 0.5 ms de latencia sin colapsar las interrupciones USB.
+                    </span>
+                  </div>
+                )}
+
+                {pollingResult.measured_hz > 4000 && (
+                  <div
+                    className="banner banner-error"
+                    role="alert"
+                    style={{ margin: "0 0 12px 0", textAlign: "left" }}
+                  >
+                    <span>
+                      ⚠️ <strong>Alerta de Hardware:</strong> Los ratones a 8000 Hz pueden saturar el bus USB de tu placa base, causando micro-stutters. Considera bajar a 2000 Hz o 4000 Hz para obtener la máxima estabilidad.
+                    </span>
+                  </div>
+                )}
+
+                {activeUsbMouse?.port_recommendation && !showPortBottleneckAlert && (
+                  <div
+                    className={`banner ${
+                      activeUsbMouse.port_recommendation.startsWith("✅")
+                        ? "banner-success"
+                        : "banner-warning"
+                    }`}
+                    role="alert"
+                    style={{ margin: "0 0 12px 0", textAlign: "left" }}
+                  >
+                    <span>{activeUsbMouse.port_recommendation}</span>
                   </div>
                 )}
                 <p>

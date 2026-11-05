@@ -148,6 +148,8 @@ export interface HidDeviceInfo {
   transport: string;
   device_type: string;
   raw_path: string;
+  usb_port_speed?: string;
+  port_recommendation?: string | null;
   device_name?: string;
   is_connected?: boolean;
 }
@@ -165,6 +167,7 @@ export interface HardwareDiagnosticInfo {
   displays?: DisplayInfo[];
   primary_display_hz?: number;
   active_mouse_name?: string;
+  hvci_enabled?: boolean;
 }
 
 export interface PollingAnalysisResult {
