@@ -5,11 +5,14 @@ import type {
   BlindPublicState,
   BlindResult,
   ChangeLogEntry,
+  CoreContentionInfo,
+  CpuTopologyInfo,
   DpcAnalysisResult,
   DriversInfo,
   ExternalLdatInput,
   ExternalLdatResult,
   FrametimeAnalysisResult,
+  GameProfile,
   HardwareDiagnosticInfo,
   MutationOutcome,
   NetworkAnalysisResult,
@@ -17,11 +20,13 @@ import type {
   PollingAnalysisResult,
   PresetId,
   PresetOutcome,
+  ProcessItemView,
   RevertAllOutcome,
   SimulationItem,
   StructuredBackendError,
   TelInputData,
   TelReportResult,
+  TimerResolutionStatus,
   TweakStatusView,
   UsbTopologyInfo,
 } from "../types/tweak";
@@ -200,3 +205,39 @@ export async function ipcEvaluateExternalLdat(
 ): Promise<ExternalLdatResult> {
   return invoke<ExternalLdatResult>("evaluate_external_ldat", { input });
 }
+
+// ---------------------------------------------------------------------------
+// Perfiles de Juego, Topología y Timer Resolution IPC (Etapa 6)
+// ---------------------------------------------------------------------------
+
+export async function ipcGetRunningProcesses(): Promise<ProcessItemView[]> {
+  return invoke<ProcessItemView[]>("get_running_processes");
+}
+
+export async function ipcGetCpuTopology(): Promise<CpuTopologyInfo> {
+  return invoke<CpuTopologyInfo>("get_cpu_topology");
+}
+
+export async function ipcGetCoreContention(): Promise<CoreContentionInfo> {
+  return invoke<CoreContentionInfo>("get_core_contention");
+}
+
+export async function ipcGetGameProfiles(): Promise<GameProfile[]> {
+  return invoke<GameProfile[]>("get_game_profiles");
+}
+
+export async function ipcToggleGameProfile(
+  profileId: string,
+  enabled: boolean
+): Promise<GameProfile> {
+  return invoke<GameProfile>("toggle_game_profile", { profileId, enabled });
+}
+
+export async function ipcUpdateGameProfile(profile: GameProfile): Promise<GameProfile> {
+  return invoke<GameProfile>("update_game_profile", { profile });
+}
+
+export async function ipcGetTimerResolution(): Promise<TimerResolutionStatus | null> {
+  return invoke<TimerResolutionStatus | null>("get_timer_resolution");
+}
+

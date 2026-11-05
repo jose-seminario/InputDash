@@ -3,6 +3,7 @@ import { useTweaksStore } from "./store/useTweaksStore";
 import { ABTestingView } from "./views/ABTestingView";
 import { AntiMythsView } from "./views/AntiMythsView";
 import { DashboardView } from "./views/DashboardView";
+import { GameProfilesView } from "./views/GameProfilesView";
 import { OptimizeView } from "./views/OptimizeView";
 import { SafetyView } from "./views/SafetyView";
 
@@ -84,6 +85,13 @@ export function App() {
         </button>
         <button
           type="button"
+          className={`nav-tab ${activeTab === "perfiles" ? "nav-tab-active" : ""}`}
+          onClick={() => setActiveTab("perfiles")}
+        >
+          Perfiles por Juego
+        </button>
+        <button
+          type="button"
           className={`nav-tab ${activeTab === "seguridad" ? "nav-tab-active" : ""}`}
           onClick={() => setActiveTab("seguridad")}
         >
@@ -144,6 +152,7 @@ export function App() {
         {activeTab === "dashboard" && <DashboardView />}
         {activeTab === "optimizar" && <OptimizeView />}
         {activeTab === "ab_testing" && <ABTestingView />}
+        {activeTab === "perfiles" && <GameProfilesView />}
         {activeTab === "seguridad" && <SafetyView />}
         {activeTab === "antimitos" && <AntiMythsView />}
       </main>

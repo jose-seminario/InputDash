@@ -4,6 +4,7 @@ pub mod core;
 pub mod db;
 pub mod diag;
 pub mod error;
+pub mod profiles;
 pub mod sys;
 
 use crate::ab::blind::BlindSessionManager;
@@ -11,11 +12,13 @@ use crate::ab::session::AbSessionManager;
 use crate::core::catalog::Catalog;
 use crate::core::engine::Engine;
 use crate::db::Database;
+use crate::profiles::manager::ProfileManager;
 
 pub struct AppState {
     pub engine: Result<Engine, String>,
     pub ab_manager: AbSessionManager,
     pub blind_manager: BlindSessionManager,
+    pub profile_manager: ProfileManager,
 }
 
 impl AppState {
@@ -28,6 +31,7 @@ impl AppState {
             engine: init_res,
             ab_manager: AbSessionManager::new(),
             blind_manager: BlindSessionManager::new(),
+            profile_manager: ProfileManager::new(),
         }
     }
 }
@@ -71,6 +75,13 @@ pub fn run() {
             commands::complete_blind_test,
             commands::cancel_blind_test,
             commands::evaluate_external_ldat,
+            commands::get_running_processes,
+            commands::get_cpu_topology,
+            commands::get_core_contention,
+            commands::get_game_profiles,
+            commands::toggle_game_profile,
+            commands::update_game_profile,
+            commands::get_timer_resolution,
         ])
         .run(tauri::generate_context!())
         .expect("error fatal al iniciar la ventana de Tauri");

@@ -5,7 +5,7 @@ export type RiskLevel = "bajo" | "medio" | "alto";
 export type GameProtocol = "udp" | "tcp" | "ambos";
 export type RegistryHive = "HKCU" | "HKLM";
 export type RegistryValueKind = "DWORD" | "QWORD" | "SZ";
-export type ActiveTab = "dashboard" | "optimizar" | "ab_testing" | "seguridad" | "antimitos";
+export type ActiveTab = "dashboard" | "optimizar" | "ab_testing" | "perfiles" | "seguridad" | "antimitos";
 export type PresetId = "competitivo" | "equilibrado";
 
 export type TweakTarget =
@@ -427,3 +427,54 @@ export interface ExternalLdatResult {
   verdict_label: string;
   explanation: string;
 }
+
+// ---------------------------------------------------------------------------
+// Perfiles de Juego, Topología y Timer Resolution (Etapa 6)
+// ---------------------------------------------------------------------------
+
+export interface ProcessItemView {
+  pid: number;
+  name: string;
+}
+
+export interface CpuTopologyInfo {
+  brand: string;
+  is_hybrid: boolean;
+  is_x3d: boolean;
+  physical_cores: number;
+  logical_threads: number;
+  p_cores: number;
+  e_cores: number;
+  architecture_label: string;
+  recommendation: string;
+}
+
+export interface CoreContentionInfo {
+  has_contention: boolean;
+  contenders: string[];
+  recommendation: string;
+}
+
+export type ProfileRuntimeState = "waiting" | "active" | "error";
+
+export interface GameProfile {
+  id: string;
+  name: string;
+  executables: string[];
+  enabled: boolean;
+  high_priority: boolean;
+  timer_resolution_05ms: boolean;
+  manual_affinity_mask?: number | null;
+  runtime_state: ProfileRuntimeState;
+  detected_pid?: number | null;
+  detected_exe?: string | null;
+  last_status_message?: string | null;
+}
+
+export interface TimerResolutionStatus {
+  min_resolution_ms: number;
+  max_resolution_ms: number;
+  current_resolution_ms: number;
+  is_active_by_inputdash: boolean;
+}
+

@@ -1532,3 +1532,275 @@ body {
 .ldat-result-box {
   margin-top: 20px;
 }
+
+
+/* ---------------------------------------------------------------------------
+   Etapa 6: Perfiles de Juego, Topología y Detección de Contención
+   --------------------------------------------------------------------------- */
+
+.topology-panel {
+  margin-bottom: 20px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 18px 20px;
+}
+
+.topology-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin: 14px 0 12px;
+}
+
+.topology-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg-panel-alt);
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+}
+
+.stat-value-text {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.topology-recommendation {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin: 8px 0 0;
+  line-height: 1.5;
+  background: rgba(56, 189, 248, 0.08);
+  border-left: 3px solid #38bdf8;
+  padding: 8px 12px;
+  border-radius: 4px;
+}
+
+.contention-banner {
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contention-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.contenders-list {
+  margin: 4px 0 6px 20px;
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.contenders-list li {
+  margin-bottom: 3px;
+}
+
+.contention-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.profiles-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 20px;
+}
+
+.profile-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 20px;
+  background: var(--bg-panel);
+  transition: all 0.2s ease-in-out;
+}
+
+.profile-card-active {
+  border-color: var(--status-ok, #2ea043);
+  box-shadow: 0 0 16px rgba(46, 160, 67, 0.2);
+}
+
+.profile-card-disabled {
+  opacity: 0.65;
+}
+
+.profile-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.profile-title-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.profile-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.profile-name {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.profile-executables {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.profile-status-bar {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+}
+
+.status-bar-active {
+  background: rgba(46, 160, 67, 0.15);
+  border: 1px solid var(--status-ok, #2ea043);
+  color: #3fb950;
+}
+
+.status-bar-waiting {
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+}
+
+.status-bar-disabled {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+}
+
+.status-live-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-active {
+  background: #3fb950;
+  box-shadow: 0 0 8px #3fb950;
+  animation: pulse-dot 1.5s infinite;
+}
+
+.dot-waiting {
+  background: #38bdf8;
+  opacity: 0.8;
+}
+
+@keyframes pulse-dot {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+.profile-status-subtext {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: -4px 0 0;
+  font-style: italic;
+}
+
+.custom-exe-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-panel-alt);
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+}
+
+.custom-exe-form label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.custom-input-group {
+  display: flex;
+  gap: 8px;
+}
+
+.profile-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 14px;
+}
+
+.profile-setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--accent-blue, #2563eb);
+}
+
+.setting-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.setting-desc {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-left: 22px;
+}
+
+.affinity-lock-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.badge-locked {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}

@@ -14,8 +14,12 @@ use crate::diag::network::{self, NetworkAnalysisResult};
 use crate::diag::polling::{self, PollingAnalysisResult};
 use crate::diag::report::{self, TelInputData, TelReportResult};
 use crate::error::{AppError, AppResult};
+use crate::profiles::games::GameProfile;
+use crate::profiles::manager::ProfileManager;
 use crate::sys::drivers::{self, DriversInfo, NicModerationInfo};
 use crate::sys::hardware::{self, HardwareDiagnosticInfo, UsbTopologyInfo};
+use crate::sys::process::{CoreContentionInfo, CpuTopologyInfo, ProcessItemView};
+use crate::sys::timer::TimerResolutionStatus;
 use crate::AppState;
 
 fn require_engine<'a>(state: &'a State<'a, AppState>) -> AppResult<&'a Engine> {
@@ -33,6 +37,10 @@ fn require_ab_manager<'a>(state: &'a State<'a, AppState>) -> &'a AbSessionManage
 
 fn require_blind_manager<'a>(state: &'a State<'a, AppState>) -> &'a BlindSessionManager {
     &state.blind_manager
+}
+
+fn require_profile_manager<'a>(state: &'a State<'a, AppState>) -> &'a ProfileManager {
+    &state.profile_manager
 }
 
 #[tauri::command]
@@ -369,3 +377,57 @@ pub fn evaluate_external_ldat(input: ExternalLdatInput) -> AppResult<ExternalLda
         explanation,
     })
 }
+
+// ---------------------------------------------------------------------------
+// Perfiles de Juego, Topología y Timer Resolution (Etapa 6)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn get_running_processes() -> Vec<ProcessItemView> {
+    crate::sys::process::get_running_processes()
+}
+
+#[tauri::command]
+pub fn get_cpu_topology(state: State<'_, AppState>) -> CpuTopologyInfo {
+    let pm = require_profile_manager(&state);
+    pm.get_cpu_topology()
+}
+
+#[tauri::command]
+pub fn get_core_contention(state: State<'_, AppState>) -> CoreContentionInfo {
+    let pm = require_profile_manager(&state);
+    pm.get_core_contention()
+}
+
+#[tauri::command]
+pub fn get_game_profiles(state: State<'_, AppState>) -> Vec<GameProfile> {
+    let pm = require_profile_manager(&state);
+    pm.get_profiles()
+}
+
+#[tauri::command]
+pub fn toggle_game_profile(
+    profile_id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> AppResult<GameProfile> {
+    let pm = require_profile_manager(&state);
+    pm.toggle_profile(&profile_id, enabled)
+        .map_err(AppError::Database)
+}
+
+#[tauri::command]
+pub fn update_game_profile(
+    profile: GameProfile,
+    state: State<'_, AppState>,
+) -> AppResult<GameProfile> {
+    let pm = require_profile_manager(&state);
+    pm.update_profile(profile)
+        .map_err(AppError::Database)
+}
+
+#[tauri::command]
+pub fn get_timer_resolution() -> Option<TimerResolutionStatus> {
+    crate::sys::timer::query_timer_resolution()
+}
+
