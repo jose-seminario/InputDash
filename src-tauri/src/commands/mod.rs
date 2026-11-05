@@ -5,9 +5,11 @@ use crate::core::engine::{
     Engine, MutationOutcome, PresetOutcome, RevertAllOutcome, SimulationItem, TweakStatusView,
 };
 use crate::core::log::{self, ChangeLogEntry};
+use crate::diag::network::{self, NetworkAnalysisResult};
 use crate::diag::polling::{self, PollingAnalysisResult};
 use crate::error::{AppError, AppResult};
-use crate::sys::hardware::{self, HardwareDiagnosticInfo};
+use crate::sys::drivers::{self, DriversInfo, NicModerationInfo};
+use crate::sys::hardware::{self, HardwareDiagnosticInfo, UsbTopologyInfo};
 use crate::AppState;
 
 fn require_engine<'a>(state: &'a State<'a, AppState>) -> AppResult<&'a Engine> {
@@ -105,4 +107,29 @@ pub async fn start_polling_analysis() -> AppResult<PollingAnalysisResult> {
     })
     .await
     .map_err(|e| AppError::PollingAnalysis(format!("Error en tarea de polling: {e}")))?
+}
+
+#[tauri::command]
+pub fn get_drivers_info() -> AppResult<DriversInfo> {
+    drivers::get_drivers_info()
+}
+
+#[tauri::command]
+pub async fn start_network_analysis(host: Option<String>) -> AppResult<NetworkAnalysisResult> {
+    let target_host = host.unwrap_or_else(|| "8.8.8.8".to_string());
+    tauri::async_runtime::spawn_blocking(move || {
+        network::run_network_analysis(&target_host)
+    })
+    .await
+    .map_err(|e| AppError::NetworkAnalysis(format!("Error en análisis de red: {e}")))?
+}
+
+#[tauri::command]
+pub fn get_usb_topology() -> AppResult<UsbTopologyInfo> {
+    hardware::get_usb_topology_info()
+}
+
+#[tauri::command]
+pub fn get_nic_moderation() -> AppResult<NicModerationInfo> {
+    drivers::get_nic_moderation()
 }

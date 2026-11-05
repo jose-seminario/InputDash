@@ -755,3 +755,135 @@ body {
 .verdict-explanation p {
   margin: 0;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Interrupt Moderation, USB Topology & Network Diag (Etapa 3.2)              */
+/* -------------------------------------------------------------------------- */
+
+.moderation-alert {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.moderation-warn {
+  background-color: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #f59e0b;
+}
+
+.moderation-warn p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+}
+
+.moderation-good {
+  background-color: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #10b981;
+}
+
+.moderation-good p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+}
+
+.usb-controllers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 14px;
+}
+
+.usb-controller-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.controller-contention {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(239, 68, 68, 0.02));
+}
+
+.usb-ctrl-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.usb-ctrl-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.usb-devices-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.usb-dev-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background-color: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.usb-dev-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.usb-dev-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.usb-dev-badges {
+  display: flex;
+  gap: 6px;
+}
+
+.network-controls-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.network-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+}
+
+.text-input {
+  background-color: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-family: monospace;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.text-input:focus {
+  border-color: var(--accent-orange, #f59e0b);
+}

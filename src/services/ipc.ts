@@ -11,6 +11,10 @@ import type {
   TweakStatusView,
   HardwareDiagnosticInfo,
   PollingAnalysisResult,
+  DriversInfo,
+  NicModerationInfo,
+  NetworkAnalysisResult,
+  UsbTopologyInfo,
 } from "../types/tweak";
 
 export function formatIpcError(err: unknown): StructuredBackendError {
@@ -81,4 +85,20 @@ export async function ipcGetHardwareInfo(): Promise<HardwareDiagnosticInfo> {
 
 export async function ipcStartPollingAnalysis(): Promise<PollingAnalysisResult> {
   return invoke<PollingAnalysisResult>("start_polling_analysis");
+}
+
+export async function ipcGetDriversInfo(): Promise<DriversInfo> {
+  return invoke<DriversInfo>("get_drivers_info");
+}
+
+export async function ipcStartNetworkAnalysis(host?: string): Promise<NetworkAnalysisResult> {
+  return invoke<NetworkAnalysisResult>("start_network_analysis", { host });
+}
+
+export async function ipcGetUsbTopology(): Promise<UsbTopologyInfo> {
+  return invoke<UsbTopologyInfo>("get_usb_topology");
+}
+
+export async function ipcGetNicModeration(): Promise<NicModerationInfo> {
+  return invoke<NicModerationInfo>("get_nic_moderation");
 }

@@ -69,6 +69,9 @@ pub enum AppError {
 
     #[error("{0}")]
     PollingAnalysis(String),
+
+    #[error("Error en análisis de red: {0}")]
+    NetworkAnalysis(String),
 }
 
 #[derive(Serialize)]
@@ -97,6 +100,7 @@ impl AppError {
             Self::UnsupportedPlatform(_) => "UNSUPPORTED_PLATFORM",
             Self::HardwareDiag(_) => "HARDWARE_DIAG_ERROR",
             Self::PollingAnalysis(_) => "POLLING_ANALYSIS_ERROR",
+            Self::NetworkAnalysis(_) => "NETWORK_ANALYSIS_ERROR",
         }
     }
 }

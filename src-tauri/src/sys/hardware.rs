@@ -1,5 +1,6 @@
 use core::ffi::c_void;
 use core::ptr;
+use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use windows::core::GUID;
 use windows::Win32::Foundation::{LUID, POINTL, RECTL};
@@ -36,6 +37,29 @@ pub struct HardwareDiagnosticInfo {
     pub monitor: MonitorInfo,
     pub mice: Vec<HidDeviceInfo>,
     pub keyboards: Vec<HidDeviceInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsbDeviceNode {
+    pub device_name: String,
+    pub instance_id: String,
+    pub is_mouse: bool,
+    pub is_audio: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsbHostControllerGroup {
+    pub controller_id: String,
+    pub controller_name: String,
+    pub devices: Vec<UsbDeviceNode>,
+    pub has_contention: bool,
+    pub contention_details: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsbTopologyInfo {
+    pub controllers: Vec<UsbHostControllerGroup>,
+    pub any_contention_detected: bool,
 }
 
 // -----------------------------------------------------------------------------
@@ -168,7 +192,7 @@ impl Default for DISPLAYCONFIG_MODE_INFO_UNION {
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 struct DISPLAYCONFIG_MODE_INFO {
-    infoType: u32, // 1 = SOURCE, 2 = TARGET, 3 = DESKTOP_IMAGE
+    infoType: u32,
     id: u32,
     adapterId: LUID,
     mode: DISPLAYCONFIG_MODE_INFO_UNION,
@@ -221,37 +245,94 @@ extern "system" {
 }
 
 // -----------------------------------------------------------------------------
-// Implementation
+// SetupAPI and CfgMgr32 FFI for USB Topology
+// -----------------------------------------------------------------------------
+
+const DIGCF_PRESENT: u32 = 0x00000002;
+const DIGCF_ALLCLASSES: u32 = 0x00000004;
+const SPDRP_DEVICEDESC: u32 = 0x00000000;
+const SPDRP_FRIENDLYNAME: u32 = 0x0000000C;
+
+#[repr(C)]
+struct SP_DEVINFO_DATA {
+    cbSize: u32,
+    ClassGuid: GUID,
+    DevInst: u32,
+    Reserved: usize,
+}
+
+#[link(name = "setupapi")]
+extern "system" {
+    fn SetupDiGetClassDevsW(
+        ClassGuid: *const GUID,
+        Enumerator: *const u16,
+        hwndParent: *mut c_void,
+        Flags: u32,
+    ) -> *mut c_void;
+    fn SetupDiEnumDeviceInfo(
+        DeviceInfoSet: *mut c_void,
+        MemberIndex: u32,
+        DeviceInfoData: *mut SP_DEVINFO_DATA,
+    ) -> i32;
+    fn SetupDiGetDeviceRegistryPropertyW(
+        DeviceInfoSet: *mut c_void,
+        DeviceInfoData: *const SP_DEVINFO_DATA,
+        Property: u32,
+        PropertyRegDataType: *mut u32,
+        PropertyBuffer: *mut u8,
+        PropertyBufferSize: u32,
+        RequiredSize: *mut u32,
+    ) -> i32;
+    fn SetupDiDestroyDeviceInfoList(DeviceInfoSet: *mut c_void) -> i32;
+}
+
+#[link(name = "cfgmgr32")]
+extern "system" {
+    fn CM_Get_Device_IDW(
+        dnDevInst: u32,
+        Buffer: *mut u16,
+        BufferLen: u32,
+        ulFlags: u32,
+    ) -> u32;
+    fn CM_Get_Parent(
+        pdnDevInst: *mut u32,
+        dnDevInst: u32,
+        ulFlags: u32,
+    ) -> u32;
+}
+
+// -----------------------------------------------------------------------------
+// Implementation: GPU
 // -----------------------------------------------------------------------------
 
 pub fn detect_gpu_info() -> GpuInfo {
-    // 1. Try DXGI EnumAdapters
     let dxgi_res = detect_gpu_dxgi();
-
-    // 2. Query driver version from Registry
-    let driver_ver = query_gpu_driver_version();
 
     match dxgi_res {
         Ok(mut gpu) => {
+            // Note: associate driver version to the adapter with highest VRAM
+            let driver_ver = query_gpu_driver_version(Some(&gpu.name));
             if !driver_ver.is_empty() {
                 gpu.driver_version = driver_ver;
             }
             gpu
         }
-        Err(_) => GpuInfo {
-            name: "Adaptador de Pantalla de Windows".to_string(),
-            vram_mb: 0,
-            driver_version: if driver_ver.is_empty() {
-                "Controlador Genérico".to_string()
-            } else {
-                driver_ver
-            },
-        },
+        Err(_) => {
+            let driver_ver = query_gpu_driver_version(None);
+            GpuInfo {
+                name: "Adaptador de Pantalla de Windows".to_string(),
+                vram_mb: 0,
+                driver_version: if driver_ver.is_empty() {
+                    "Controlador Genérico".to_string()
+                } else {
+                    driver_ver
+                },
+            }
+        }
     }
 }
 
 fn detect_gpu_dxgi() -> AppResult<GpuInfo> {
-    // IDXGIFactory IID: {7b7166ec-21c7-44ae-b21a-c9ae321ae369}
     const IID_IDXGI_FACTORY: GUID = GUID {
         data1: 0x7b7166ec,
         data2: 0x21c7,
@@ -290,8 +371,6 @@ fn detect_gpu_dxgi() -> AppResult<GpuInfo> {
     }
     let _factory_guard = FactoryGuard(factory_ptr);
 
-    // Vtable IDXGIFactory:
-    // Slot 7: EnumAdapters(this, uint Adapter, out IntPtr ppAdapter)
     let vtbl = unsafe { *(factory_ptr as *mut *mut usize) };
     let enum_adapters_fn: unsafe extern "system" fn(
         *mut c_void,
@@ -309,9 +388,6 @@ fn detect_gpu_dxgi() -> AppResult<GpuInfo> {
             break;
         }
 
-        // Vtable IDXGIAdapter:
-        // Slot 2: Release
-        // Slot 8: GetDesc(this, out DXGI_ADAPTER_DESC pDesc)
         let a_vtbl = unsafe { *(adapter_ptr as *mut *mut usize) };
         let get_desc_fn: unsafe extern "system" fn(
             *mut c_void,
@@ -345,7 +421,6 @@ fn detect_gpu_dxgi() -> AppResult<GpuInfo> {
 
             let vram_mb = (desc.DedicatedVideoMemory / (1024 * 1024)) as u64;
 
-            // Ignore software rendering / Microsoft Basic Render Driver if hardware GPU exists
             let is_software = name.to_lowercase().contains("basic render")
                 || name.to_lowercase().contains("software");
 
@@ -355,6 +430,7 @@ fn detect_gpu_dxgi() -> AppResult<GpuInfo> {
                 driver_version: "Consultando...".to_string(),
             };
 
+            // Pick the GPU with highest dedicated VRAM (discrete over integrated)
             if selected_gpu.is_none() || (!is_software && current.vram_mb > selected_gpu.as_ref().map(|g| g.vram_mb).unwrap_or(0)) {
                 selected_gpu = Some(current);
             }
@@ -366,24 +442,46 @@ fn detect_gpu_dxgi() -> AppResult<GpuInfo> {
     selected_gpu.ok_or_else(|| AppError::HardwareDiag("No se encontró ningún adaptador DXGI compatible".to_string()))
 }
 
-fn query_gpu_driver_version() -> String {
+fn query_gpu_driver_version(target_gpu_name: Option<&str>) -> String {
     use crate::sys::registry::{read_value, RegistryHive, RegistryState};
 
     const CLASS_BASE: &str = "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}";
 
-    for sub in &["0000", "0001", "0002", "0003"] {
-        let subkey = format!("{CLASS_BASE}\\{sub}");
-        if let Ok(RegistryState::Present(crate::sys::registry::RegistryData::Sz(ver))) =
-            read_value(RegistryHive::HKLM, &subkey, "DriverVersion")
-        {
-            if !ver.trim().is_empty() {
+    let mut fallback_ver = String::new();
+
+    for i in 0..15 {
+        let subkey = format!("{CLASS_BASE}\\{i:04}");
+
+        let desc = match read_value(RegistryHive::HKLM, &subkey, "DriverDesc") {
+            Ok(RegistryState::Present(crate::sys::registry::RegistryData::Sz(d))) => d,
+            _ => continue,
+        };
+
+        let ver = match read_value(RegistryHive::HKLM, &subkey, "DriverVersion") {
+            Ok(RegistryState::Present(crate::sys::registry::RegistryData::Sz(v))) => v,
+            _ => continue,
+        };
+
+        if fallback_ver.is_empty() && !ver.is_empty() {
+            fallback_ver = ver.clone();
+        }
+
+        if let Some(target) = target_gpu_name {
+            let desc_lower = desc.to_lowercase();
+            let target_lower = target.to_lowercase();
+            // Match vendor and name parts
+            if desc_lower.contains(&target_lower) || target_lower.contains(&desc_lower) {
                 return ver;
             }
         }
     }
 
-    String::new()
+    fallback_ver
 }
+
+// -----------------------------------------------------------------------------
+// Implementation: Monitor & VRR
+// -----------------------------------------------------------------------------
 
 pub fn detect_monitor_info() -> MonitorInfo {
     let mut num_paths: u32 = 0;
@@ -419,7 +517,6 @@ pub fn detect_monitor_info() -> MonitorInfo {
         return fallback_monitor_info();
     }
 
-    // Inspect active path
     let first_path = &paths[0];
     let rr = first_path.targetInfo.refreshRate;
     let refresh_hz = if rr.Denominator > 0 {
@@ -437,7 +534,6 @@ pub fn detect_monitor_info() -> MonitorInfo {
         "1920 x 1080".to_string()
     };
 
-    // VRR check: Check if all available display modes for this target offer variable frequencies
     let supports_vrr = check_vrr_support(first_path.targetInfo.id);
 
     MonitorInfo {
@@ -477,8 +573,7 @@ fn check_vrr_support(_target_id: u32) -> bool {
         return false;
     }
 
-    // A display with VRR (G-Sync/FreeSync) or multiple refresh modes will have varied non-standard rational refresh rates
-    let mut distinct_rates = std::collections::HashSet::new();
+    let mut distinct_rates = HashSet::new();
     for p in &all_paths {
         let r = p.targetInfo.refreshRate;
         if r.Denominator > 0 {
@@ -499,6 +594,10 @@ fn fallback_monitor_info() -> MonitorInfo {
         supports_vrr: false,
     }
 }
+
+// -----------------------------------------------------------------------------
+// Implementation: HID Devices
+// -----------------------------------------------------------------------------
 
 pub fn detect_hid_devices() -> (Vec<HidDeviceInfo>, Vec<HidDeviceInfo>) {
     let mut num_devices: u32 = 0;
@@ -523,8 +622,7 @@ pub fn detect_hid_devices() -> (Vec<HidDeviceInfo>, Vec<HidDeviceInfo>) {
 
     let mut mice = Vec::new();
     let mut keyboards = Vec::new();
-
-    let mut seen_paths = std::collections::HashSet::new();
+    let mut seen_paths = HashSet::new();
 
     for dev in raw_list.iter().take(count as usize) {
         if dev.hDevice.is_null() {
@@ -563,7 +661,6 @@ pub fn detect_hid_devices() -> (Vec<HidDeviceInfo>, Vec<HidDeviceInfo>) {
             continue;
         }
 
-        // Deduplicate
         let base_id = clean_device_path(&path);
         if !seen_paths.insert(base_id) {
             continue;
@@ -603,7 +700,6 @@ pub fn detect_hid_devices() -> (Vec<HidDeviceInfo>, Vec<HidDeviceInfo>) {
 }
 
 fn clean_device_path(raw: &str) -> String {
-    // If the path contains collection identifiers (&Col01), strip it to identify the physical device
     let upper = raw.to_uppercase();
     if let Some(pos) = upper.find("&COL") {
         return upper[..pos].to_string();
@@ -704,4 +800,202 @@ pub fn get_hardware_diagnostic_info() -> HardwareDiagnosticInfo {
         mice,
         keyboards,
     }
+}
+
+// -----------------------------------------------------------------------------
+// Implementation: USB Topology & Root Hub Contention (Etapa 3.2.3)
+// -----------------------------------------------------------------------------
+
+pub fn get_usb_topology_info() -> AppResult<UsbTopologyInfo> {
+    let usb_wide: Vec<u16> = "USB\0".encode_utf16().collect();
+    let set = unsafe {
+        SetupDiGetClassDevsW(
+            ptr::null(),
+            usb_wide.as_ptr(),
+            ptr::null_mut(),
+            DIGCF_ALLCLASSES | DIGCF_PRESENT,
+        )
+    };
+
+    if set.is_null() || set == (-1isize as *mut c_void) {
+        return Err(AppError::HardwareDiag(
+            "Fallo al enumerar dispositivos USB vía SetupAPI".to_string(),
+        ));
+    }
+
+    struct DevInfoSetGuard(*mut c_void);
+    impl Drop for DevInfoSetGuard {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = SetupDiDestroyDeviceInfoList(self.0);
+            }
+        }
+    }
+    let _set_guard = DevInfoSetGuard(set);
+
+    let mut groups: HashMap<String, Vec<UsbDeviceNode>> = HashMap::new();
+    let mut dev_info = SP_DEVINFO_DATA {
+        cbSize: std::mem::size_of::<SP_DEVINFO_DATA>() as u32,
+        ClassGuid: GUID::default(),
+        DevInst: 0,
+        Reserved: 0,
+    };
+
+    let mut idx = 0u32;
+    let mut buf = [0u16; 512];
+
+    loop {
+        let enum_res = unsafe { SetupDiEnumDeviceInfo(set, idx, &mut dev_info) };
+        if enum_res == 0 {
+            break;
+        }
+
+        let mut id_buf = [0u16; 512];
+        let id_res = unsafe { CM_Get_Device_IDW(dev_info.DevInst, id_buf.as_mut_ptr(), 512, 0) };
+        let instance_id = if id_res == 0 {
+            String::from_utf16_lossy(&id_buf)
+                .trim_matches('\0')
+                .trim()
+                .to_string()
+        } else {
+            String::new()
+        };
+
+        // Query FriendlyName or DeviceDesc
+        let mut reg_type = 0u32;
+        let mut req_size = 0u32;
+        let mut got_prop = unsafe {
+            SetupDiGetDeviceRegistryPropertyW(
+                set,
+                &dev_info,
+                SPDRP_FRIENDLYNAME,
+                &mut reg_type,
+                buf.as_mut_ptr() as *mut u8,
+                (buf.len() * 2) as u32,
+                &mut req_size,
+            )
+        };
+
+        if got_prop == 0 {
+            got_prop = unsafe {
+                SetupDiGetDeviceRegistryPropertyW(
+                    set,
+                    &dev_info,
+                    SPDRP_DEVICEDESC,
+                    &mut reg_type,
+                    buf.as_mut_ptr() as *mut u8,
+                    (buf.len() * 2) as u32,
+                    &mut req_size,
+                )
+            };
+        }
+
+        let device_name = if got_prop != 0 {
+            String::from_utf16_lossy(&buf)
+                .trim_matches('\0')
+                .trim()
+                .to_string()
+        } else {
+            instance_id.clone()
+        };
+
+        // Climb parents until Host Controller / Root Hub
+        let mut curr_inst = dev_info.DevInst;
+        let mut root_hub_id = instance_id.clone();
+
+        loop {
+            let mut parent_inst = 0u32;
+            let p_res = unsafe { CM_Get_Parent(&mut parent_inst, curr_inst, 0) };
+            if p_res != 0 || parent_inst == 0 {
+                break;
+            }
+
+            let mut p_buf = [0u16; 512];
+            let p_id_res = unsafe { CM_Get_Device_IDW(parent_inst, p_buf.as_mut_ptr(), 512, 0) };
+            if p_id_res == 0 {
+                let p_id = String::from_utf16_lossy(&p_buf)
+                    .trim_matches('\0')
+                    .trim()
+                    .to_string();
+
+                let upper = p_id.to_uppercase();
+                if upper.starts_with("USB\\ROOT_HUB") || upper.starts_with("PCI\\") {
+                    root_hub_id = p_id;
+                }
+            }
+
+            curr_inst = parent_inst;
+        }
+
+        let lower_name = device_name.to_lowercase();
+        let lower_id = instance_id.to_lowercase();
+
+        let is_mouse = lower_name.contains("mouse")
+            || lower_name.contains("ratón")
+            || lower_id.contains("mouse");
+
+        let is_audio = lower_name.contains("audio")
+            || lower_name.contains("sound")
+            || lower_name.contains("headset")
+            || lower_name.contains("auricular")
+            || lower_name.contains("micrófono")
+            || lower_name.contains("microphone")
+            || lower_name.contains("dac");
+
+        // Filter root hub self-references from list of children
+        if !instance_id.to_uppercase().starts_with("USB\\ROOT_HUB") && !device_name.is_empty() {
+            groups.entry(root_hub_id).or_default().push(UsbDeviceNode {
+                device_name,
+                instance_id,
+                is_mouse,
+                is_audio,
+            });
+        }
+
+        idx += 1;
+    }
+
+    let mut controllers = Vec::new();
+    let mut any_contention_detected = false;
+
+    let mut group_keys: Vec<String> = groups.keys().cloned().collect();
+    group_keys.sort();
+
+    for (c_idx, ctrl_id) in group_keys.into_iter().enumerate() {
+        let mut devices = groups.remove(&ctrl_id).unwrap_or_default();
+        // Deduplicate devices by instance_id
+        let mut seen = HashSet::new();
+        devices.retain(|d| seen.insert(d.instance_id.clone()));
+
+        let has_mouse = devices.iter().any(|d| d.is_mouse);
+        let has_audio = devices.iter().any(|d| d.is_audio);
+
+        let has_contention = has_mouse && has_audio;
+        if has_contention {
+            any_contention_detected = true;
+        }
+
+        let contention_details = if has_contention {
+            Some(
+                "Contención detectada: El mouse comparte controlador raíz USB con un dispositivo de audio. Las transferencias isócronas continuas de audio pueden causar micro-stuttering y fluctuación de jitter en el polling rate.".to_string(),
+            )
+        } else {
+            None
+        };
+
+        let controller_name = format!("Controlador Raíz USB #{}", c_idx + 1);
+
+        controllers.push(UsbHostControllerGroup {
+            controller_id: ctrl_id,
+            controller_name,
+            devices,
+            has_contention,
+            contention_details,
+        });
+    }
+
+    Ok(UsbTopologyInfo {
+        controllers,
+        any_contention_detected,
+    })
 }

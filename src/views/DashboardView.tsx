@@ -5,22 +5,32 @@ export function DashboardView() {
   const {
     hardware,
     pollingResult,
+    drivers,
+    nicModeration,
+    usbTopology,
+    networkResult,
+    targetHost,
     isHardwareLoading,
     isPollingAnalyzing,
+    isNetworkAnalyzing,
+    isUsbLoading,
+    isDriversLoading,
     pollingSecondsLeft,
     pollingError,
+    networkError,
     hardwareError,
-    fetchHardwareInfo,
+    fetchAllDiagnostics,
     startPollingAnalysis,
+    startNetworkAnalysis,
+    setTargetHost,
     clearPollingResult,
+    clearNetworkResult,
     dismissDiagError,
   } = useDiagStore();
 
   useEffect(() => {
-    if (!hardware) {
-      void fetchHardwareInfo();
-    }
-  }, [hardware, fetchHardwareInfo]);
+    void fetchAllDiagnostics();
+  }, [fetchAllDiagnostics]);
 
   const gpu = hardware?.gpu;
   const monitor = hardware?.monitor;
@@ -37,12 +47,12 @@ export function DashboardView() {
 
   return (
     <div className="dashboard-container">
-      {/* Banner de error */}
-      {(pollingError || hardwareError) && (
+      {/* Banner de errores / advertencias */}
+      {(pollingError || networkError || hardwareError) && (
         <div className="banner banner-error" role="alert">
           <div>
             <span className="banner-code">[DIAG_AVISO]</span>
-            <span>{pollingError || hardwareError}</span>
+            <span>{pollingError || networkError || hardwareError}</span>
           </div>
           <button type="button" className="banner-close" onClick={dismissDiagError}>
             Cerrar
@@ -59,10 +69,10 @@ export function DashboardView() {
           <button
             type="button"
             className="btn btn-secondary btn-small"
-            disabled={isHardwareLoading || isPollingAnalyzing}
-            onClick={() => void fetchHardwareInfo()}
+            disabled={isHardwareLoading || isPollingAnalyzing || isNetworkAnalyzing}
+            onClick={() => void fetchAllDiagnostics()}
           >
-            {isHardwareLoading ? "Detectando..." : "Actualizar Hardware"}
+            {isHardwareLoading ? "Detectando..." : "Actualizar Todo"}
           </button>
         </div>
 
@@ -115,76 +125,160 @@ export function DashboardView() {
         </div>
       </section>
 
-      {/* SECCIÓN 2: PERIFÉRICOS */}
+      {/* SECCIÓN 2: CONTROLADORES Y ADAPTADOR DE RED */}
       <section className="dashboard-section">
-        <h2 className="section-heading">2. Dispositivos de Entrada (Mouse y Teclado HID)</h2>
+        <h2 className="section-heading">2. Controladores de Red, Audio e Interrupt Moderation</h2>
         <div className="diag-cards-grid">
-          {/* Mice */}
+          {/* NIC Driver & Moderation Card */}
           <div className="diag-card">
             <div className="diag-card-header">
-              <span className="diag-card-tag">Mouse / Puntero Activo</span>
-              <span className="badge badge-default">Raw Input HID</span>
+              <span className="diag-card-tag">Adaptador de Red Activo</span>
+              <span className="badge badge-default">Net Class Win32</span>
             </div>
-            {mice.length === 0 ? (
-              <p className="tweak-desc">No se encontraron dispositivos de mouse en la lista Raw Input.</p>
-            ) : (
-              mice.map((m, idx) => (
-                <div key={m.raw_path || idx} className="peripheral-item">
-                  <div className="peripheral-title-row">
-                    <strong className="peripheral-name">{m.name}</strong>
-                    <span
-                      className={`badge ${
-                        m.transport === "USB"
-                          ? "badge-applied"
-                          : m.transport === "Bluetooth"
-                          ? "badge-warn"
-                          : "badge-default"
-                      }`}
-                    >
-                      {m.transport}
-                    </span>
-                  </div>
-                  <div className="peripheral-meta">
-                    <span>VID: <code className="meta-mono">{m.vid}</code></span>
-                    <span>PID: <code className="meta-mono">{m.pid}</code></span>
-                  </div>
-                </div>
-              ))
+            <h3 className="diag-card-title">
+              {drivers ? drivers.active_nic_name : "Consultando interfaz..."}
+            </h3>
+            <div className="diag-metrics-list">
+              <div className="diag-metric-row">
+                <span className="meta-label">Versión de Controlador NIC:</span>
+                <span className="meta-mono">{drivers ? drivers.active_nic_driver : "..."}</span>
+              </div>
+              <div className="diag-metric-row">
+                <span className="meta-label">Interrupt Moderation:</span>
+                <span
+                  className={`badge ${
+                    nicModeration?.is_enabled ? "badge-warn" : "badge-applied"
+                  }`}
+                >
+                  {nicModeration ? nicModeration.value_str : "Consultando..."}
+                </span>
+              </div>
+            </div>
+
+            {nicModeration && (
+              <div
+                className={`moderation-alert ${
+                  nicModeration.is_enabled ? "moderation-warn" : "moderation-good"
+                }`}
+              >
+                <strong>{nicModeration.verdict}</strong>
+                <p>{nicModeration.explanation}</p>
+              </div>
             )}
           </div>
 
-          {/* Keyboards */}
+          {/* Audio Driver Card */}
           <div className="diag-card">
             <div className="diag-card-header">
-              <span className="diag-card-tag">Teclado(s) Detectado(s)</span>
-              <span className="badge badge-default">Raw Input HID</span>
+              <span className="diag-card-tag">Dispositivo de Audio Principal</span>
+              <span className="badge badge-default">Media Class Win32</span>
             </div>
-            {keyboards.length === 0 ? (
-              <p className="tweak-desc">No se encontraron teclados en la lista Raw Input.</p>
-            ) : (
-              keyboards.map((k, idx) => (
-                <div key={k.raw_path || idx} className="peripheral-item">
-                  <div className="peripheral-title-row">
-                    <strong className="peripheral-name">{k.name}</strong>
-                    <span className="badge badge-default">{k.transport}</span>
-                  </div>
-                  <div className="peripheral-meta">
-                    <span>VID: <code className="meta-mono">{k.vid}</code></span>
-                    <span>PID: <code className="meta-mono">{k.pid}</code></span>
-                  </div>
-                </div>
-              ))
-            )}
+            <h3 className="diag-card-title">
+              {drivers ? drivers.primary_audio_name : "Consultando audio..."}
+            </h3>
+            <div className="diag-metrics-list">
+              <div className="diag-metric-row">
+                <span className="meta-label">Versión de Controlador Audio:</span>
+                <span className="meta-mono">{drivers ? drivers.primary_audio_driver : "..."}</span>
+              </div>
+              <div className="diag-metric-row">
+                <span className="meta-label">Estado de Pila de Audio:</span>
+                <span className="badge badge-default">Modo Exclusivo WASAPI Listo</span>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* SECCIÓN 3: ANÁLISIS DE POLLING RATE */}
+      {/* SECCIÓN 3: TOPOLOGÍA USB Y CONTENCIÓN */}
+      <section className="dashboard-section">
+        <div className="section-header-row">
+          <div>
+            <h2 className="section-heading" style={{ margin: 0 }}>
+              3. Topología USB y Detección de Contención (Root Hub Contention)
+            </h2>
+            <p className="tweak-desc" style={{ marginBottom: 0, marginTop: "4px" }}>
+              Mapea qué periféricos comparten el mismo controlador raíz USB mediante <code>SetupAPI</code> y <code>CfgMgr32</code>.
+              Compartir bus entre mouse y audio USB (transferencias isócronas continuas) provoca micro-cortes e inestabilidad en el sondeo.
+            </p>
+          </div>
+        </div>
+
+        {usbTopology?.any_contention_detected && (
+          <div className="banner banner-error" role="alert" style={{ marginTop: "10px" }}>
+            <div>
+              <span className="banner-code">[ALERTA_CONTENCIÓN]</span>
+              <span>
+                Se detectó que tu mouse de juego comparte el controlador raíz USB con un dispositivo de audio.
+                Conecta el receptor o cable del mouse en otro puerto USB (directo a la placa base, evitando hubs compartidos).
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="usb-controllers-grid" style={{ marginTop: "12px" }}>
+          {isUsbLoading ? (
+            <div className="empty-state">Explorando árbol de controladores USB...</div>
+          ) : !usbTopology || usbTopology.controllers.length === 0 ? (
+            <div className="empty-state">No se pudieron enumerar controladores USB.</div>
+          ) : (
+            usbTopology.controllers.map((ctrl) => (
+              <div
+                key={ctrl.controller_id}
+                className={`usb-controller-card ${ctrl.has_contention ? "controller-contention" : ""}`}
+              >
+                <div className="usb-ctrl-header">
+                  <div>
+                    <h3 className="usb-ctrl-title">{ctrl.controller_name}</h3>
+                    <span className="meta-mono" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                      {ctrl.controller_id}
+                    </span>
+                  </div>
+                  <span className={`badge ${ctrl.has_contention ? "badge-blocked" : "badge-applied"}`}>
+                    {ctrl.has_contention ? "Contención Detectada" : "Canal Aislado"}
+                  </span>
+                </div>
+
+                <div className="usb-devices-list">
+                  {ctrl.devices.length === 0 ? (
+                    <div className="empty-state" style={{ padding: "8px" }}>
+                      Sin dispositivos secundarios registrados en este concentrador.
+                    </div>
+                  ) : (
+                    ctrl.devices.map((dev) => (
+                      <div key={dev.instance_id} className="usb-dev-row">
+                        <div className="usb-dev-info">
+                          <span className="usb-dev-name">{dev.device_name}</span>
+                          <span className="meta-mono" style={{ fontSize: "10px", color: "var(--text-secondary)" }}>
+                            {dev.instance_id}
+                          </span>
+                        </div>
+                        <div className="usb-dev-badges">
+                          {dev.is_mouse && <span className="badge badge-warn">Mouse</span>}
+                          {dev.is_audio && <span className="badge badge-default">Audio USB</span>}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {ctrl.contention_details && (
+                  <div className="inline-error" style={{ marginTop: "8px" }}>
+                    {ctrl.contention_details}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      {/* SECCIÓN 4: ANÁLISIS DE POLLING RATE DEL MOUSE */}
       <section className="dashboard-section polling-analysis-section">
         <div className="polling-box-header">
           <div>
             <h2 className="section-heading" style={{ margin: 0 }}>
-              3. Medición Científica de Polling Rate del Mouse
+              4. Medición Científica de Polling Rate del Mouse
             </h2>
             <p className="tweak-desc" style={{ marginBottom: 0, marginTop: "4px" }}>
               Captura ráfagas de paquetes HID en tiempo real con <code>QueryPerformanceCounter</code> durante una ventana
@@ -193,12 +287,11 @@ export function DashboardView() {
           </div>
         </div>
 
-        {/* Action Button & Progress */}
         <div className="polling-action-bar">
           <button
             type="button"
             className="btn btn-primary btn-large"
-            disabled={isPollingAnalyzing}
+            disabled={isPollingAnalyzing || isNetworkAnalyzing}
             onClick={() => void startPollingAnalysis()}
           >
             {isPollingAnalyzing ? `Midiendo... ¡Mueve el mouse! (${pollingSecondsLeft}s)` : "Iniciar Análisis de Polling (4 seg)"}
@@ -214,12 +307,11 @@ export function DashboardView() {
           )}
         </div>
 
-        {/* Tarjeta de Veredicto (Semáforo) */}
         {pollingResult && !isPollingAnalyzing && (
           <div className={`verdict-card verdict-${pollingResult.status}`}>
             <div className="verdict-header">
               <div>
-                <span className="verdict-tag">Tarjeta de Veredicto de Latencia</span>
+                <span className="verdict-tag">Tarjeta de Veredicto de Sondeo</span>
                 <h3 className="verdict-title">{pollingResult.status_label}</h3>
               </div>
               <div className="verdict-hz-large">
@@ -283,6 +375,124 @@ export function DashboardView() {
                 onClick={clearPollingResult}
               >
                 Limpiar Resultado
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* SECCIÓN 5: ANÁLISIS DE RED (ICMP + UDP JITTER) */}
+      <section className="dashboard-section polling-analysis-section">
+        <div className="polling-box-header">
+          <div>
+            <h2 className="section-heading" style={{ margin: 0 }}>
+              5. Diagnóstico de Red y Jitter UDP (Tickrate 64)
+            </h2>
+            <p className="tweak-desc" style={{ marginBottom: 0, marginTop: "4px" }}>
+              Ejecuta 20 solicitudes ICMP Echo nativas (<code>IcmpSendEcho</code>) y 50 paquetes UDP a intervalos de 15.6 ms
+              (simulando tickrate de juego competitivo) hacia el host seleccionado para medir latencia y dispersión.
+            </p>
+          </div>
+        </div>
+
+        <div className="network-controls-bar">
+          <div className="network-input-group">
+            <label htmlFor="host-input" className="meta-label">
+              Host / IP de Destino:
+            </label>
+            <input
+              id="host-input"
+              type="text"
+              className="text-input"
+              value={targetHost}
+              disabled={isNetworkAnalyzing}
+              onChange={(e) => setTargetHost(e.target.value)}
+              placeholder="8.8.8.8"
+            />
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-primary btn-large"
+            disabled={isNetworkAnalyzing || isPollingAnalyzing}
+            onClick={() => void startNetworkAnalysis()}
+          >
+            {isNetworkAnalyzing ? "Midiendo Red (ICMP + UDP)..." : "Analizar Red"}
+          </button>
+        </div>
+
+        {isNetworkAnalyzing && (
+          <div className="polling-spinner-container" style={{ marginTop: "14px" }}>
+            <div className="polling-spinner" />
+            <span className="polling-spinner-text">
+              Enviando ráfagas ICMP y paquetes UDP (tickrate 15.6ms)...
+            </span>
+          </div>
+        )}
+
+        {networkResult && !isNetworkAnalyzing && (
+          <div className={`verdict-card verdict-${networkResult.status}`}>
+            <div className="verdict-header">
+              <div>
+                <span className="verdict-tag">Veredicto de Calidad de Red</span>
+                <h3 className="verdict-title">{networkResult.status_label}</h3>
+                <span className="meta-mono" style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                  Destino: {networkResult.host}
+                </span>
+              </div>
+              <div className="verdict-hz-large">
+                <span className="hz-number">{networkResult.icmp.avg_ping_ms}</span>
+                <span className="hz-unit">ms ping</span>
+              </div>
+            </div>
+
+            <div className="verdict-grid">
+              <div className="verdict-stat">
+                <span className="stat-label">ICMP Ping Mín / Máx:</span>
+                <span className="stat-value">
+                  {networkResult.icmp.min_ping_ms} / {networkResult.icmp.max_ping_ms} ms
+                </span>
+                <span className="stat-sub">Rango de ida y vuelta</span>
+              </div>
+              <div className="verdict-stat">
+                <span className="stat-label">ICMP Jitter:</span>
+                <span className="stat-value">{networkResult.icmp.jitter_ms} ms</span>
+                <span className="stat-sub">Desviación estándar</span>
+              </div>
+              <div className="verdict-stat">
+                <span className="stat-label">Pérdida de Paquetes:</span>
+                <span
+                  className="stat-value"
+                  style={{
+                    color: networkResult.icmp.packet_loss_pct > 0 ? "#ef4444" : "var(--text-primary)",
+                  }}
+                >
+                  {networkResult.icmp.packet_loss_pct}%
+                </span>
+                <span className="stat-sub">{networkResult.icmp.pings_received} / 20 recibidos</span>
+              </div>
+              <div className="verdict-stat">
+                <span className="stat-label">UDP Jitter (Tickrate 64):</span>
+                <span className="stat-value">{networkResult.udp.jitter_ms} ms</span>
+                <span className="stat-sub">
+                  RTT Prom: {networkResult.udp.avg_rtt_ms} ms ({networkResult.udp.packets_received}/50 pkts)
+                </span>
+              </div>
+            </div>
+
+            <div className="verdict-footer">
+              <div className="verdict-explanation">
+                <p>
+                  <strong>Evaluación Técnica: </strong>
+                  {networkResult.explanation}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-small"
+                onClick={clearNetworkResult}
+              >
+                Limpiar Red
               </button>
             </div>
           </div>

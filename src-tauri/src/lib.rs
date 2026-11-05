@@ -42,6 +42,10 @@ pub fn run() {
             commands::get_change_logs,
             commands::get_hardware_info,
             commands::start_polling_analysis,
+            commands::get_drivers_info,
+            commands::start_network_analysis,
+            commands::get_usb_topology,
+            commands::get_nic_moderation,
         ])
         .run(tauri::generate_context!())
         .expect("error fatal al iniciar la ventana de Tauri");

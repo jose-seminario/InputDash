@@ -166,3 +166,70 @@ export interface PollingAnalysisResult {
   status: "optimo" | "aceptable" | "critico";
   status_label: string;
 }
+
+export interface DriversInfo {
+  active_nic_name: string;
+  active_nic_driver: string;
+  primary_audio_name: string;
+  primary_audio_driver: string;
+}
+
+export interface NicModerationInfo {
+  adapter_name: string;
+  value_str: string;
+  is_enabled: boolean;
+  verdict: string;
+  explanation: string;
+}
+
+export interface IcmpAnalysisResult {
+  target_host: string;
+  pings_sent: number;
+  pings_received: number;
+  packet_loss_pct: number;
+  avg_ping_ms: number;
+  min_ping_ms: number;
+  max_ping_ms: number;
+  jitter_ms: number;
+}
+
+export interface UdpAnalysisResult {
+  target_host: string;
+  target_port: number;
+  packets_sent: number;
+  packets_received: number;
+  packet_loss_pct: number;
+  avg_rtt_ms: number;
+  jitter_ms: number;
+  min_rtt_ms: number;
+  max_rtt_ms: number;
+}
+
+export interface NetworkAnalysisResult {
+  host: string;
+  icmp: IcmpAnalysisResult;
+  udp: UdpAnalysisResult;
+  status: "optimo" | "aceptable" | "critico";
+  status_label: string;
+  explanation: string;
+}
+
+export interface UsbDeviceNode {
+  device_name: string;
+  instance_id: string;
+  is_mouse: boolean;
+  is_audio: boolean;
+}
+
+export interface UsbHostControllerGroup {
+  controller_id: string;
+  controller_name: string;
+  devices: UsbDeviceNode[];
+  has_contention: boolean;
+  contention_details: string | null;
+}
+
+export interface UsbTopologyInfo {
+  controllers: UsbHostControllerGroup[];
+  any_contention_detected: boolean;
+}
