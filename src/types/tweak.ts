@@ -467,6 +467,7 @@ export interface GameProfile {
   enabled: boolean;
   high_priority: boolean;
   timer_resolution_05ms: boolean;
+  cpu_sets_isolate?: boolean;
   manual_affinity_mask?: number | null;
   runtime_state: ProfileRuntimeState;
   detected_pid?: number | null;

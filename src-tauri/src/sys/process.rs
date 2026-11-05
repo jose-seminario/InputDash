@@ -24,6 +24,18 @@ extern "system" {
     fn OpenProcess(dwDesiredAccess: u32, bInheritHandle: i32, dwProcessId: u32) -> isize;
     fn SetPriorityClass(hProcess: isize, dwPriorityClass: u32) -> i32;
     fn SetProcessAffinityMask(hProcess: isize, dwProcessAffinityMask: usize) -> i32;
+    fn SetProcessDefaultCpuSets(
+        hProcess: isize,
+        CpuSetIds: *const u32,
+        CpuSetIdCount: u32,
+    ) -> i32;
+    fn GetSystemCpuSetInformation(
+        Information: *mut u8,
+        BufferLength: u32,
+        ReturnedLength: *mut u32,
+        Process: isize,
+        Flags: u32,
+    ) -> i32;
     fn GetLogicalProcessorInformationEx(
         RelationshipType: i32,
         Buffer: *mut u8,
@@ -348,5 +360,110 @@ pub fn set_process_affinity(pid: u32, mask: usize) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("Error estableciendo máscara de afinidad en proceso {pid}"))
+    }
+}
+
+/// Aplica CPU Sets para aislar núcleos en el proceso, con candado de seguridad para CPUs monolíticas.
+/// Excluye estrictamente el Core 0 (hilo lógico 0).
+pub fn set_process_cpu_sets_isolate(pid: u32) -> Result<(), String> {
+    if pid == 0 {
+        return Err("PID inválido".to_string());
+    }
+
+    let topo = get_cpu_topology();
+    let is_asymmetric = topo.is_hybrid || topo.is_x3d;
+    if !is_asymmetric {
+        return Err("Tu CPU es monolítica. El aislamiento de núcleos no es necesario y podría causar inestabilidad.".to_string());
+    }
+
+    let mut returned_len = 0u32;
+    let _ = unsafe { GetSystemCpuSetInformation(std::ptr::null_mut(), 0, &mut returned_len, 0, 0) };
+
+    let mut selected_cpu_set_ids = Vec::new();
+
+    if returned_len > 0 {
+        let mut buffer = vec![0u8; returned_len as usize];
+        let ok = unsafe {
+            GetSystemCpuSetInformation(
+                buffer.as_mut_ptr(),
+                returned_len,
+                &mut returned_len,
+                0,
+                0,
+            )
+        };
+
+        if ok != 0 {
+            let mut offset = 0;
+            let total_len = returned_len as usize;
+            let mut entries: Vec<(u32, u8, u8, u8)> = Vec::new();
+
+            while offset + 20 <= total_len {
+                let size = u32::from_ne_bytes(buffer[offset..offset + 4].try_into().unwrap_or([0; 4])) as usize;
+                let entry_type = u32::from_ne_bytes(buffer[offset + 4..offset + 8].try_into().unwrap_or([0; 4]));
+
+                if size == 0 {
+                    break;
+                }
+
+                if entry_type == 0 && offset + 20 <= total_len {
+                    let id = u32::from_ne_bytes(buffer[offset + 8..offset + 12].try_into().unwrap_or([0; 4]));
+                    let logical_idx = buffer[offset + 14];
+                    let eff_class = buffer[offset + 18];
+                    let llc_idx = buffer[offset + 16];
+                    entries.push((id, logical_idx, eff_class, llc_idx));
+                }
+
+                offset += size;
+            }
+
+            if topo.is_hybrid {
+                let max_eff = entries.iter().map(|e| e.2).max().unwrap_or(0);
+                for (id, logical_idx, eff_class, _) in &entries {
+                    if *logical_idx != 0 && *eff_class == max_eff {
+                        selected_cpu_set_ids.push(*id);
+                    }
+                }
+            } else if topo.is_x3d {
+                let half_threads = (topo.logical_threads / 2).max(1) as u8;
+                for (id, logical_idx, _, _) in &entries {
+                    if *logical_idx != 0 && *logical_idx < half_threads {
+                        selected_cpu_set_ids.push(*id);
+                    }
+                }
+            }
+        }
+    }
+
+    if selected_cpu_set_ids.is_empty() {
+        let threads_to_use = if topo.is_hybrid {
+            (topo.p_cores * (topo.logical_threads / topo.physical_cores)).max(2)
+        } else {
+            (topo.logical_threads / 2).max(2)
+        };
+
+        for idx in 1..threads_to_use {
+            selected_cpu_set_ids.push(idx as u32);
+        }
+    }
+
+    let handle = unsafe { OpenProcess(PROCESS_SET_INFORMATION, 0, pid) };
+    if handle == 0 || handle == INVALID_HANDLE_VALUE {
+        return Err(format!("No se pudo abrir el proceso {pid} con PROCESS_SET_INFORMATION"));
+    }
+
+    let ok = unsafe {
+        SetProcessDefaultCpuSets(
+            handle,
+            selected_cpu_set_ids.as_ptr(),
+            selected_cpu_set_ids.len() as u32,
+        )
+    };
+    unsafe { CloseHandle(handle) };
+
+    if ok != 0 {
+        Ok(())
+    } else {
+        Err(format!("Error aplicando CPU Sets en el proceso {pid}"))
     }
 }

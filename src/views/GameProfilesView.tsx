@@ -120,6 +120,22 @@ export function GameProfilesView() {
     }
   };
 
+  const handleToggleCpuSets = async (prof: GameProfile) => {
+    if (!topology?.is_hybrid && !topology?.is_x3d) {
+      setErrorMsg("Tu CPU es monolítica. El aislamiento de núcleos no es necesario y podría causar inestabilidad.");
+      return;
+    }
+    try {
+      const updated = await ipcUpdateGameProfile({
+        ...prof,
+        cpu_sets_isolate: !prof.cpu_sets_isolate,
+      });
+      setProfiles((prev) => prev.map((p) => (p.id === prof.id ? updated : p)));
+    } catch (err) {
+      setErrorMsg(String(err));
+    }
+  };
+
   const handleSaveCustomExe = async (prof: GameProfile) => {
     if (!customExeInput.trim()) return;
     try {
@@ -363,6 +379,47 @@ export function GameProfilesView() {
                     <span className="setting-desc">
                       Reduce el intervalo de temporización a 0.5 ms únicamente mientras el juego esté abierto;
                       se restaura automáticamente al cerrarlo.
+                    </span>
+                  </div>
+
+                  <div
+                    className={`profile-setting-item ${!isHybridOrX3d ? "setting-item-locked" : ""}`}
+                    title={
+                      !isHybridOrX3d
+                        ? "🔒 Optimización exclusiva para CPUs con asimetría de núcleos (AMD X3D o Intel P/E-Cores). Tu procesador es monolítico y no requiere aislamiento. Forzarlo podría causar inestabilidad."
+                        : undefined
+                    }
+                  >
+                    <label
+                      className="checkbox-label"
+                      style={{ cursor: isHybridOrX3d ? "pointer" : "not-allowed" }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(prof.cpu_sets_isolate)}
+                        disabled={!prof.enabled || !isHybridOrX3d}
+                        onChange={() => void handleToggleCpuSets(prof)}
+                        style={{ cursor: isHybridOrX3d ? "pointer" : "not-allowed" }}
+                      />
+                      <span
+                        className="setting-title"
+                        style={{
+                          opacity: isHybridOrX3d ? 1 : 0.45,
+                          color: isHybridOrX3d ? "inherit" : "var(--text-secondary)",
+                        }}
+                      >
+                        Aislar Núcleos (CPU Sets)
+                      </span>
+                      {!isHybridOrX3d && (
+                        <span className="badge badge-locked" style={{ marginLeft: "8px", fontSize: "11px" }}>
+                          🔒 Bloqueado (CPU Monolítica)
+                        </span>
+                      )}
+                    </label>
+                    <span className="setting-desc" style={{ opacity: isHybridOrX3d ? 1 : 0.65 }}>
+                      {isHybridOrX3d
+                        ? "Asigna los hilos del juego a los núcleos de alto rendimiento (P-cores / CCD con 3D V-Cache) y excluye el Core 0 mediante SetProcessDefaultCpuSets para erradicar micro-tirones."
+                        : "Tu procesador es monolítico y no requiere aislamiento. Forzarlo podría causar inestabilidad."}
                     </span>
                   </div>
 

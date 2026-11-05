@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter};
 use crate::profiles::games::{GameProfile, ProfileRuntimeState};
 use crate::sys::process::{
     get_core_contention, get_cpu_topology, get_running_processes, set_process_affinity,
-    set_process_priority, CoreContentionInfo, CpuTopologyInfo,
+    set_process_cpu_sets_isolate, set_process_priority, CoreContentionInfo, CpuTopologyInfo,
 };
 use crate::sys::timer::TimerResolutionGuard;
 
@@ -173,6 +173,14 @@ impl ProfileManager {
                     }
                 }
 
+                // Aislamiento de Núcleos (CPU Sets)
+                if prof.cpu_sets_isolate {
+                    match set_process_cpu_sets_isolate(pid) {
+                        Ok(()) => status_msg_parts.push("Aislamiento CPU Sets activo (sin Core 0)".to_string()),
+                        Err(e) => status_msg_parts.push(format!("CPU Sets: {e}")),
+                    }
+                }
+
                 // Afinidad de CPU con Bloqueo Dinámico
                 if let Some(mask) = prof.manual_affinity_mask {
                     if is_hybrid || is_x3d {
@@ -241,6 +249,12 @@ impl ProfileManager {
         // Bloqueo dinámico de afinidad si la CPU es híbrida o X3D
         let is_restricted = guard.cpu_topology.is_hybrid || guard.cpu_topology.is_x3d;
         let mut prof_to_save = updated;
+
+        // Candado de seguridad para CPU Sets en CPUs monolíticas
+        if !is_restricted && prof_to_save.cpu_sets_isolate {
+            prof_to_save.cpu_sets_isolate = false;
+            return Err("Tu CPU es monolítica. El aislamiento de núcleos no es necesario y podría causar inestabilidad.".to_string());
+        }
         if is_restricted && prof_to_save.manual_affinity_mask.is_some() {
             prof_to_save.manual_affinity_mask = None;
             prof_to_save.last_status_message = Some(

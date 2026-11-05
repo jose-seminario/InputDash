@@ -90,6 +90,7 @@ pub fn run() {
             commands::get_game_profiles,
             commands::toggle_game_profile,
             commands::update_game_profile,
+            commands::apply_cpu_sets_isolate,
             commands::get_timer_resolution,
             commands::start_bufferbloat_analysis,
             commands::export_full_report,

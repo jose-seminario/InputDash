@@ -441,6 +441,12 @@ pub fn update_game_profile(
 }
 
 #[tauri::command]
+pub fn apply_cpu_sets_isolate(pid: u32) -> AppResult<()> {
+    crate::sys::process::set_process_cpu_sets_isolate(pid)
+        .map_err(AppError::Database)
+}
+
+#[tauri::command]
 pub fn get_timer_resolution() -> Option<TimerResolutionStatus> {
     crate::sys::timer::query_timer_resolution()
 }

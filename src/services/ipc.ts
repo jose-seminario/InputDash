@@ -242,6 +242,10 @@ export async function ipcUpdateGameProfile(profile: GameProfile): Promise<GamePr
   return invoke<GameProfile>("update_game_profile", { profile });
 }
 
+export async function ipcApplyCpuSetsIsolate(pid: number): Promise<void> {
+  return invoke<void>("apply_cpu_sets_isolate", { pid });
+}
+
 export async function ipcGetTimerResolution(): Promise<TimerResolutionStatus | null> {
   return invoke<TimerResolutionStatus | null>("get_timer_resolution");
 }
