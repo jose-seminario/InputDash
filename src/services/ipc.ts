@@ -1,24 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AbSession,
   BackupSnapshot,
   ChangeLogEntry,
+  DpcAnalysisResult,
+  DriversInfo,
+  FrametimeAnalysisResult,
+  HardwareDiagnosticInfo,
   MutationOutcome,
+  NetworkAnalysisResult,
+  NicModerationInfo,
+  PollingAnalysisResult,
   PresetId,
   PresetOutcome,
   RevertAllOutcome,
   SimulationItem,
   StructuredBackendError,
-  TweakStatusView,
-  HardwareDiagnosticInfo,
-  PollingAnalysisResult,
-  DriversInfo,
-  NicModerationInfo,
-  NetworkAnalysisResult,
-  UsbTopologyInfo,
-  FrametimeAnalysisResult,
-  DpcAnalysisResult,
   TelInputData,
   TelReportResult,
+  TweakStatusView,
+  UsbTopologyInfo,
 } from "../types/tweak";
 
 export function formatIpcError(err: unknown): StructuredBackendError {
@@ -117,4 +118,38 @@ export async function ipcStartDpcAnalysis(): Promise<DpcAnalysisResult> {
 
 export async function ipcCalculateTel(inputData: TelInputData): Promise<TelReportResult> {
   return invoke<TelReportResult>("calculate_tel", { inputData });
+}
+
+// ---------------------------------------------------------------------------
+// A/B Testing IPC (Etapa 4.2)
+// ---------------------------------------------------------------------------
+
+export async function ipcRecordAbBaseline(
+  tweakId: string,
+  tweakName: string,
+  metric: string,
+  samples: number[]
+): Promise<AbSession> {
+  return invoke<AbSession>("record_ab_baseline", {
+    tweakId,
+    tweakName,
+    metric,
+    samples,
+  });
+}
+
+export async function ipcApplyAndEvaluateAb(samples: number[]): Promise<AbSession> {
+  return invoke<AbSession>("apply_and_evaluate_ab", { samples });
+}
+
+export async function ipcGetAbSession(): Promise<AbSession | null> {
+  return invoke<AbSession | null>("get_ab_session");
+}
+
+export async function ipcResetAbSession(): Promise<void> {
+  return invoke<void>("reset_ab_session");
+}
+
+export async function ipcCaptureAbSyntheticSamples(count?: number): Promise<number[]> {
+  return invoke<number[]>("capture_ab_synthetic_samples", { count });
 }

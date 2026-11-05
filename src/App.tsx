@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useTweaksStore } from "./store/useTweaksStore";
+import { ABTestingView } from "./views/ABTestingView";
 import { AntiMythsView } from "./views/AntiMythsView";
 import { DashboardView } from "./views/DashboardView";
 import { OptimizeView } from "./views/OptimizeView";
@@ -76,6 +77,13 @@ export function App() {
         </button>
         <button
           type="button"
+          className={`nav-tab ${activeTab === "ab_testing" ? "nav-tab-active" : ""}`}
+          onClick={() => setActiveTab("ab_testing")}
+        >
+          Prueba A/B
+        </button>
+        <button
+          type="button"
           className={`nav-tab ${activeTab === "seguridad" ? "nav-tab-active" : ""}`}
           onClick={() => setActiveTab("seguridad")}
         >
@@ -135,6 +143,7 @@ export function App() {
       <main>
         {activeTab === "dashboard" && <DashboardView />}
         {activeTab === "optimizar" && <OptimizeView />}
+        {activeTab === "ab_testing" && <ABTestingView />}
         {activeTab === "seguridad" && <SafetyView />}
         {activeTab === "antimitos" && <AntiMythsView />}
       </main>

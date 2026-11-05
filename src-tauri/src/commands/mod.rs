@@ -1,5 +1,6 @@
 use tauri::State;
 
+use crate::ab::session::{AbSession, AbSessionManager};
 use crate::core::backup::BackupSnapshot;
 use crate::core::engine::{
     Engine, MutationOutcome, PresetOutcome, RevertAllOutcome, SimulationItem, TweakStatusView,
@@ -22,6 +23,10 @@ fn require_engine<'a>(state: &'a State<'a, AppState>) -> AppResult<&'a Engine> {
             "Error de inicialización del motor: {init_err}"
         ))),
     }
+}
+
+fn require_ab_manager<'a>(state: &'a State<'a, AppState>) -> &'a AbSessionManager {
+    &state.ab_manager
 }
 
 #[tauri::command]
@@ -158,4 +163,71 @@ pub async fn start_dpc_analysis() -> AppResult<DpcAnalysisResult> {
 #[tauri::command]
 pub fn calculate_tel(input_data: TelInputData) -> AppResult<TelReportResult> {
     report::calculate_tel(&input_data)
+}
+
+// ---------------------------------------------------------------------------
+// A/B Testing Commands (Etapa 4.2)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn record_ab_baseline(
+    tweak_id: String,
+    tweak_name: String,
+    metric: String,
+    samples: Vec<f64>,
+    state: State<'_, AppState>,
+) -> AppResult<AbSession> {
+    let ab = require_ab_manager(&state);
+    ab.record_baseline(&tweak_id, &tweak_name, &metric, samples)
+}
+
+#[tauri::command]
+pub fn apply_and_evaluate_ab(
+    samples: Vec<f64>,
+    state: State<'_, AppState>,
+) -> AppResult<AbSession> {
+    let engine = require_engine(&state)?;
+    let ab = require_ab_manager(&state);
+    ab.apply_and_evaluate(samples, engine)
+}
+
+#[tauri::command]
+pub fn get_ab_session(state: State<'_, AppState>) -> Option<AbSession> {
+    let ab = require_ab_manager(&state);
+    ab.get_session()
+}
+
+#[tauri::command]
+pub fn reset_ab_session(state: State<'_, AppState>) {
+    let ab = require_ab_manager(&state);
+    ab.reset();
+}
+
+#[tauri::command]
+pub fn capture_ab_synthetic_samples(count: Option<usize>) -> Vec<f64> {
+    let sample_count = count.unwrap_or(60).clamp(10, 500);
+    let mut samples = Vec::with_capacity(sample_count);
+    let mut qpc_freq: i64 = 0;
+    unsafe {
+        crate::diag::etw_common::QueryPerformanceFrequency(&mut qpc_freq);
+    }
+    if qpc_freq <= 0 {
+        qpc_freq = 10_000_000;
+    }
+
+    for _ in 0..sample_count {
+        let mut t1: i64 = 0;
+        let mut t2: i64 = 0;
+        unsafe {
+            crate::diag::etw_common::QueryPerformanceCounter(&mut t1);
+            std::thread::yield_now();
+            crate::diag::etw_common::QueryPerformanceCounter(&mut t2);
+        }
+        let diff = t2 - t1;
+        if diff > 0 {
+            let ms = (diff as f64 * 1000.0) / qpc_freq as f64;
+            samples.push((ms * 1000.0).round() / 1000.0);
+        }
+    }
+    samples
 }

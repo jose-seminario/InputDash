@@ -5,7 +5,7 @@ export type RiskLevel = "bajo" | "medio" | "alto";
 export type GameProtocol = "udp" | "tcp" | "ambos";
 export type RegistryHive = "HKCU" | "HKLM";
 export type RegistryValueKind = "DWORD" | "QWORD" | "SZ";
-export type ActiveTab = "dashboard" | "optimizar" | "seguridad" | "antimitos";
+export type ActiveTab = "dashboard" | "optimizar" | "ab_testing" | "seguridad" | "antimitos";
 export type PresetId = "competitivo" | "equilibrado";
 
 export type TweakTarget =
@@ -128,110 +128,107 @@ export interface StructuredBackendError {
   message: string;
 }
 
+export interface MouseDeviceInfo {
+  device_name: string;
+  is_connected: boolean;
+}
+
+export interface KeyboardDeviceInfo {
+  device_name: string;
+  is_connected: boolean;
+}
+
+export interface DisplayInfo {
+  device_name: string;
+  monitor_name: string;
+  refresh_hz: number;
+  is_primary: boolean;
+}
+
 export interface GpuInfo {
   name: string;
-  vram_mb: number;
+  dedicated_vram_mb: number;
   driver_version: string;
-}
-
-export interface MonitorInfo {
-  resolution: string;
-  refresh_hz: number;
-  supports_vrr: boolean;
-}
-
-export interface HidDeviceInfo {
-  name: string;
-  vid: string;
-  pid: string;
-  transport: string;
-  device_type: string;
-  raw_path: string;
 }
 
 export interface HardwareDiagnosticInfo {
   gpu: GpuInfo;
-  monitor: MonitorInfo;
-  mice: HidDeviceInfo[];
-  keyboards: HidDeviceInfo[];
+  displays: DisplayInfo[];
+  primary_display_hz: number;
+  mice: MouseDeviceInfo[];
+  keyboards: KeyboardDeviceInfo[];
+  active_mouse_name: string;
 }
 
 export interface PollingAnalysisResult {
-  measured_hz: number;
+  sample_count: number;
+  estimated_hz: number;
   avg_interval_ms: number;
-  jitter_ms: number;
   min_interval_ms: number;
   max_interval_ms: number;
-  sample_count: number;
+  interval_std_dev_ms: number;
+  jitter_ms: number;
   status: "optimo" | "aceptable" | "critico";
   status_label: string;
-}
-
-export interface DriversInfo {
-  active_nic_name: string;
-  active_nic_driver: string;
-  primary_audio_name: string;
-  primary_audio_driver: string;
-}
-
-export interface NicModerationInfo {
-  adapter_name: string;
-  value_str: string;
-  is_enabled: boolean;
-  verdict: string;
   explanation: string;
 }
 
-export interface IcmpAnalysisResult {
+export interface DriverDetail {
+  name: string;
+  version: string;
+  provider: string;
+  date: string;
+  is_outdated: boolean;
+}
+
+export interface DriversInfo {
+  gpu_driver: DriverDetail;
+  network_driver: DriverDetail;
+  audio_driver: DriverDetail;
+}
+
+export interface NetworkAnalysisResult {
   target_host: string;
-  pings_sent: number;
-  pings_received: number;
-  packet_loss_pct: number;
+  ping_samples_ms: number[];
   avg_ping_ms: number;
   min_ping_ms: number;
   max_ping_ms: number;
   jitter_ms: number;
-}
-
-export interface UdpAnalysisResult {
-  target_host: string;
-  target_port: number;
-  packets_sent: number;
-  packets_received: number;
   packet_loss_pct: number;
-  avg_rtt_ms: number;
-  jitter_ms: number;
-  min_rtt_ms: number;
-  max_rtt_ms: number;
-}
-
-export interface NetworkAnalysisResult {
-  host: string;
-  icmp: IcmpAnalysisResult;
-  udp: UdpAnalysisResult;
+  is_wifi: boolean;
+  connection_type: "Ethernet" | "Wi-Fi" | "Desconocido";
   status: "optimo" | "aceptable" | "critico";
   status_label: string;
   explanation: string;
 }
 
 export interface UsbDeviceNode {
-  device_name: string;
-  instance_id: string;
+  name: string;
+  hardware_id: string;
   is_mouse: boolean;
-  is_audio: boolean;
 }
 
-export interface UsbHostControllerGroup {
-  controller_id: string;
+export interface UsbControllerNode {
   controller_name: string;
+  has_mouse: boolean;
   devices: UsbDeviceNode[];
-  has_contention: boolean;
-  contention_details: string | null;
+  sharing_with_high_bandwidth: boolean;
 }
 
 export interface UsbTopologyInfo {
-  controllers: UsbHostControllerGroup[];
-  any_contention_detected: boolean;
+  controllers: UsbControllerNode[];
+  has_contention: boolean;
+  mouse_controller_name: string;
+  status: "optimo" | "advertencia" | "desconocido";
+  status_label: string;
+  explanation: string;
+}
+
+export interface NicModerationInfo {
+  adapter_name: string;
+  moderation_mode: "Disabled" | "Low" | "Medium" | "High" | "Adaptive" | "Unknown";
+  is_optimal_for_gaming: boolean;
+  recommendation: string;
 }
 
 export interface FrametimeAnalysisResult {
@@ -299,4 +296,52 @@ export interface TelReportResult {
   verdict: "optimo" | "aceptable" | "critico" | "incompleto";
   verdict_label: string;
   explanation: string;
+}
+
+// ---------------------------------------------------------------------------
+// A/B Testing Types (Etapa 4.2)
+// ---------------------------------------------------------------------------
+
+export type AbSessionState = "idle" | "baselineready" | "tweakapplied" | "completed";
+export type AbVerdict = "mejoro" | "placebo" | "empeoro";
+
+export interface SampleSummary {
+  count: number;
+  mean: number;
+  median: number;
+  min: number;
+  max: number;
+  std_dev: number;
+  p1: number;
+  p0_1: number;
+  p99: number;
+  p99_9: number;
+  fps_1pct_low?: number | null;
+  fps_01pct_low?: number | null;
+}
+
+export interface TTestResult {
+  t_stat: number;
+  degrees_of_freedom: number;
+  p_value: number;
+  is_significant: boolean;
+}
+
+export interface AbSession {
+  id: string;
+  tweak_id: string;
+  tweak_name: string;
+  metric: string;
+  state: AbSessionState;
+  baseline_samples: number[];
+  test_samples: number[];
+  baseline_summary?: SampleSummary | null;
+  test_summary?: SampleSummary | null;
+  t_test?: TTestResult | null;
+  delta_pct?: number | null;
+  verdict?: AbVerdict | null;
+  verdict_label?: string | null;
+  explanation?: string | null;
+  proposed_action?: string | null;
+  can_rollback: boolean;
 }

@@ -1,3 +1,4 @@
+pub mod ab;
 pub mod commands;
 pub mod core;
 pub mod db;
@@ -5,12 +6,14 @@ pub mod diag;
 pub mod error;
 pub mod sys;
 
+use crate::ab::session::AbSessionManager;
 use crate::core::catalog::Catalog;
 use crate::core::engine::Engine;
 use crate::db::Database;
 
 pub struct AppState {
     pub engine: Result<Engine, String>,
+    pub ab_manager: AbSessionManager,
 }
 
 impl AppState {
@@ -19,7 +22,10 @@ impl AppState {
             .and_then(|catalog| Database::initialize().map(|db| Engine::new(catalog, db)))
             .map_err(|e| e.to_string());
 
-        Self { engine: init_res }
+        Self {
+            engine: init_res,
+            ab_manager: AbSessionManager::new(),
+        }
     }
 }
 
@@ -49,6 +55,11 @@ pub fn run() {
             commands::start_frametime_analysis,
             commands::start_dpc_analysis,
             commands::calculate_tel,
+            commands::record_ab_baseline,
+            commands::apply_and_evaluate_ab,
+            commands::get_ab_session,
+            commands::reset_ab_session,
+            commands::capture_ab_synthetic_samples,
         ])
         .run(tauri::generate_context!())
         .expect("error fatal al iniciar la ventana de Tauri");

@@ -396,6 +396,47 @@ impl Engine {
         }
     }
 
+    /// Aplica un tweak dentro de una sesión A/B controlada.
+    /// Permite evaluar tanto tweaks Seguros como Avanzados, ejecutando el flujo transaccional
+    /// completo: guard -> backup JSON atómico -> restore_point -> apply -> verify -> log.
+    pub fn apply_tweak_ab(&self, tweak_id: &str) -> AppResult<MutationOutcome> {
+        let tweak = self.catalog.get_by_id(tweak_id)?;
+
+        // 1. guard.check (bloquea tweaks prohibidos o claves fuera de allowlist)
+        guard::check_can_apply(tweak)?;
+
+        match &tweak.target {
+            TweakTarget::Registry {
+                hive,
+                ruta,
+                valor,
+                dato,
+                tipo_dato,
+            } => self.apply_registry_tweak(tweak, *hive, ruta, valor, dato, *tipo_dato),
+            TweakTarget::PowerPlan { guid } => self.apply_power_plan_tweak(tweak, guid),
+            TweakTarget::PowerSetting {
+                subgroup_guid,
+                setting_guid,
+                ac_index,
+                dc_index,
+            } => self.apply_power_setting_tweak(
+                tweak,
+                subgroup_guid,
+                setting_guid,
+                *ac_index,
+                *dc_index,
+            ),
+            TweakTarget::Process { .. } => {
+                Err(AppError::StagePending(
+                    "Los ajustes dinámicos por proceso de juego pertenecen a la Etapa 6".to_string(),
+                ))
+            }
+            TweakTarget::Blocked { .. } => Err(AppError::GuardViolation(
+                "Bloqueado por seguridad. Ver pestaña Anti-mitos".to_string(),
+            )),
+        }
+    }
+
     fn apply_registry_tweak(
         &self,
         tweak: &TweakDefinition,

@@ -1,18 +1,24 @@
 import { create } from "zustand";
 import {
   formatIpcError,
+  ipcApplyAndEvaluateAb,
   ipcApplyPreset,
   ipcApplyTweak,
+  ipcCaptureAbSyntheticSamples,
   ipcCreateRestorePoint,
+  ipcGetAbSession,
   ipcGetActiveBackups,
   ipcGetChangeLogs,
   ipcListTweaks,
+  ipcRecordAbBaseline,
+  ipcResetAbSession,
   ipcRevertAllTweaks,
   ipcRevertTweak,
   ipcSimulatePreset,
   ipcSimulateTweaks,
 } from "../services/ipc";
 import type {
+  AbSession,
   ActiveTab,
   BackupSnapshot,
   ChangeLogEntry,
@@ -36,6 +42,11 @@ interface TweaksState {
   warningMessage: string | null;
   successMessage: string | null;
 
+  // Estado A/B Testing (Etapa 4.2)
+  abSession: AbSession | null;
+  isAbBusy: boolean;
+  abBusyLabel: string | null;
+
   setActiveTab: (tab: ActiveTab) => void;
   setSimulationMode: (enabled: boolean) => void;
   clearSimulation: () => void;
@@ -49,6 +60,18 @@ interface TweaksState {
   simulateAllSafe: () => Promise<void>;
   simulatePreset: (presetId: PresetId) => Promise<void>;
   createManualRestorePoint: () => Promise<void>;
+
+  // Acciones A/B Testing
+  refreshAbSession: () => Promise<void>;
+  recordAbBaseline: (
+    tweakId: string,
+    tweakName: string,
+    metric: string,
+    samples: number[]
+  ) => Promise<void>;
+  applyAndEvaluateAb: (testSamples: number[]) => Promise<void>;
+  resetAbSession: () => Promise<void>;
+  captureSyntheticSamples: (count?: number) => Promise<number[]>;
 }
 
 export const useTweaksStore = create<TweaksState>((set, get) => ({
@@ -64,6 +87,10 @@ export const useTweaksStore = create<TweaksState>((set, get) => ({
   errorBanner: null,
   warningMessage: null,
   successMessage: null,
+
+  abSession: null,
+  isAbBusy: false,
+  abBusyLabel: null,
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 
@@ -82,12 +109,13 @@ export const useTweaksStore = create<TweaksState>((set, get) => ({
   refreshAll: async () => {
     set({ isLoading: true, errorBanner: null });
     try {
-      const [tweaks, backups, logs] = await Promise.all([
+      const [tweaks, backups, logs, abSession] = await Promise.all([
         ipcListTweaks(),
         ipcGetActiveBackups(),
         ipcGetChangeLogs(100),
+        ipcGetAbSession().catch(() => null),
       ]);
-      set({ tweaks, backups, logs, isLoading: false });
+      set({ tweaks, backups, logs, abSession, isLoading: false });
     } catch (err) {
       set({
         isLoading: false,
@@ -321,5 +349,57 @@ export const useTweaksStore = create<TweaksState>((set, get) => ({
         errorBanner: formatIpcError(err),
       });
     }
+  },
+
+  refreshAbSession: async () => {
+    try {
+      const session = await ipcGetAbSession();
+      set({ abSession: session });
+    } catch (err) {
+      set({ errorBanner: formatIpcError(err) });
+    }
+  },
+
+  recordAbBaseline: async (tweakId, tweakName, metric, samples) => {
+    set({ isAbBusy: true, abBusyLabel: "Registrando Baseline..." });
+    try {
+      const session = await ipcRecordAbBaseline(tweakId, tweakName, metric, samples);
+      set({ abSession: session, isAbBusy: false, abBusyLabel: null });
+    } catch (err) {
+      set({ isAbBusy: false, abBusyLabel: null, errorBanner: formatIpcError(err) });
+    }
+  },
+
+  applyAndEvaluateAb: async (testSamples) => {
+    set({ isAbBusy: true, abBusyLabel: "Aplicando tweak y evaluando hipótesis A/B..." });
+    try {
+      const session = await ipcApplyAndEvaluateAb(testSamples);
+      const tweaks = await ipcListTweaks();
+      const backups = await ipcGetActiveBackups();
+      const logs = await ipcGetChangeLogs(100);
+      set({
+        abSession: session,
+        tweaks,
+        backups,
+        logs,
+        isAbBusy: false,
+        abBusyLabel: null,
+      });
+    } catch (err) {
+      set({ isAbBusy: false, abBusyLabel: null, errorBanner: formatIpcError(err) });
+    }
+  },
+
+  resetAbSession: async () => {
+    try {
+      await ipcResetAbSession();
+      set({ abSession: null });
+    } catch (err) {
+      set({ errorBanner: formatIpcError(err) });
+    }
+  },
+
+  captureSyntheticSamples: async (count) => {
+    return ipcCaptureAbSyntheticSamples(count);
   },
 }));
