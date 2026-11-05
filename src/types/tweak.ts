@@ -5,7 +5,7 @@ export type RiskLevel = "bajo" | "medio" | "alto";
 export type GameProtocol = "udp" | "tcp" | "ambos";
 export type RegistryHive = "HKCU" | "HKLM";
 export type RegistryValueKind = "DWORD" | "QWORD" | "SZ";
-export type ActiveTab = "dashboard" | "optimizar" | "ab_testing" | "perfiles" | "seguridad" | "antimitos";
+export type ActiveTab = "dashboard" | "optimizar" | "ab_testing" | "perfiles" | "guias" | "seguridad" | "antimitos";
 export type PresetId = "competitivo" | "equilibrado";
 
 export type TweakTarget =
@@ -476,5 +476,40 @@ export interface TimerResolutionStatus {
   max_resolution_ms: number;
   current_resolution_ms: number;
   is_active_by_inputdash: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Bufferbloat y Exportación de Reportes (Etapa 7)
+// ---------------------------------------------------------------------------
+
+export interface BufferbloatResult {
+  baseline_ping_ms: number;
+  loaded_ping_ms: number;
+  delta_ms: number;
+  delta_pct: number;
+  grade: "A+" | "A" | "B" | "C" | "D" | "F" | string;
+  status: "optimo" | "aceptable" | "critico" | string;
+  status_label: string;
+  explanation: string;
+  sqm_recommendation: string;
+}
+
+export interface FullExportPayload {
+  hardware?: unknown;
+  network?: unknown;
+  bufferbloat?: unknown;
+  polling?: unknown;
+  tel?: unknown;
+  ab_session?: unknown;
+  blind_result?: unknown;
+  active_backups?: unknown;
+  change_logs?: unknown;
+}
+
+export interface ExportResult {
+  json_path: string;
+  html_path: string;
+  filename_base: string;
+  message: string;
 }
 

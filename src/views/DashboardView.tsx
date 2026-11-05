@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { useDiagStore } from "../store/useDiagStore";
+import { useTweaksStore } from "../store/useTweaksStore";
+import { ipcStartBufferbloatAnalysis, ipcExportFullReport } from "../services/ipc";
+import type { BufferbloatResult, FullExportPayload } from "../types/tweak";
 
 export function DashboardView() {
   const {
@@ -45,6 +48,48 @@ export function DashboardView() {
   } = useDiagStore();
 
   const [selectedTickrate, setSelectedTickrate] = useState<number>(64);
+  const { backups, logs, abSession } = useTweaksStore();
+  const [isBufferbloatAnalyzing, setIsBufferbloatAnalyzing] = useState<boolean>(false);
+  const [bufferbloatResult, setBufferbloatResult] = useState<BufferbloatResult | null>(null);
+  const [bufferbloatError, setBufferbloatError] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [exportSuccessMsg, setExportSuccessMsg] = useState<string | null>(null);
+
+  const handleStartBufferbloat = async () => {
+    setIsBufferbloatAnalyzing(true);
+    setBufferbloatError(null);
+    try {
+      const res = await ipcStartBufferbloatAnalysis(targetHost.trim() || undefined);
+      setBufferbloatResult(res);
+    } catch (err) {
+      setBufferbloatError(String(err));
+    } finally {
+      setIsBufferbloatAnalyzing(false);
+    }
+  };
+
+  const handleExportFullReport = async () => {
+    setIsExporting(true);
+    setExportSuccessMsg(null);
+    try {
+      const payload: FullExportPayload = {
+        hardware: hardware ?? undefined,
+        network: networkResult ?? undefined,
+        bufferbloat: bufferbloatResult ?? undefined,
+        polling: pollingResult ?? undefined,
+        tel: telReport ?? undefined,
+        ab_session: abSession ?? undefined,
+        active_backups: backups ?? undefined,
+        change_logs: logs ?? undefined,
+      };
+      const res = await ipcExportFullReport(payload);
+      setExportSuccessMsg(res.message);
+    } catch (err) {
+      setBufferbloatError(String(err));
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   useEffect(() => {
     void fetchAllDiagnostics();
@@ -57,7 +102,7 @@ export function DashboardView() {
 
   const isAnyLoading = isHardwareLoading || isDriversLoading || isUsbLoading;
   const anyActiveAnalysis =
-    isPollingAnalyzing || isNetworkAnalyzing || isFrametimeAnalyzing || isDpcAnalyzing;
+    isPollingAnalyzing || isNetworkAnalyzing || isFrametimeAnalyzing || isDpcAnalyzing || isBufferbloatAnalyzing;
 
   const formatVram = (mb: number) => {
     if (mb >= 1024) {
@@ -101,15 +146,34 @@ export function DashboardView() {
           <h2 className="section-heading" style={{ margin: 0 }}>
             1. Sistema de Renderizado y Pantalla
           </h2>
-          <button
-            type="button"
-            className="btn btn-secondary btn-small"
-            disabled={isAnyLoading || anyActiveAnalysis}
-            onClick={() => void fetchAllDiagnostics()}
-          >
-            {isAnyLoading ? "Detectando..." : "Actualizar Todo"}
-          </button>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-small"
+              disabled={isExporting}
+              onClick={() => void handleExportFullReport()}
+            >
+              {isExporting ? "Exportando..." : "Exportar Reporte Completo"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-small"
+              disabled={isAnyLoading || anyActiveAnalysis}
+              onClick={() => void fetchAllDiagnostics()}
+            >
+              {isAnyLoading ? "Detectando..." : "Actualizar Todo"}
+            </button>
+          </div>
         </div>
+
+        {exportSuccessMsg && (
+          <div className="banner banner-success" role="alert" style={{ marginTop: "10px" }}>
+            <span>✓ {exportSuccessMsg}</span>
+            <button type="button" className="banner-close" onClick={() => setExportSuccessMsg(null)}>
+              Cerrar
+            </button>
+          </div>
+        )}
 
         <div className="diag-cards-grid">
           {/* Tarjeta GPU */}
@@ -803,12 +867,127 @@ export function DashboardView() {
         )}
       </section>
 
-      {/* SECCIÓN 9: TOTAL ENGAGEMENT LATENCY (TEL) & VENTANA DE VENTAJA */}
+      {/* SECCIÓN 9: DIAGNÓSTICO DE BUFFERBLOAT (LATENCIA BAJO CARGA) */}
       <section className="dashboard-section polling-analysis-section">
         <div className="polling-box-header">
           <div>
             <h2 className="section-heading" style={{ margin: 0 }}>
-              9. Total Engagement Latency (TEL) & Ventana de Ventaja Competitiva
+              9. Diagnóstico de Bufferbloat (Latencia Bajo Carga de Red)
+            </h2>
+            <p className="tweak-desc" style={{ marginBottom: 0, marginTop: "4px" }}>
+              Mide la degradación del ping cuando el enlace de red está saturado de tráfico. Compara el RTT en reposo frente al RTT bajo saturación con 4 conexiones simultáneas.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={isBufferbloatAnalyzing || anyActiveAnalysis}
+            onClick={() => void handleStartBufferbloat()}
+          >
+            {isBufferbloatAnalyzing ? "Midiendo Saturación (10s)..." : "Iniciar Test de Bufferbloat (10s)"}
+          </button>
+        </div>
+
+        {bufferbloatError && (
+          <div className="banner banner-error" style={{ marginTop: "12px" }}>
+            <span>[BUFFERBLOAT_ERROR] {bufferbloatError}</span>
+            <button type="button" className="banner-close" onClick={() => setBufferbloatError(null)}>
+              Cerrar
+            </button>
+          </div>
+        )}
+
+        {isBufferbloatAnalyzing && (
+          <div className="analysis-progress-panel" style={{ marginTop: "14px" }}>
+            <div className="spinner-row">
+              <span className="spinner" />
+              <span>
+                Ejecutando Fase 1 (Reposo) y Fase 2 (Saturación TCP 4 streams)... Espera 10 segundos.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {bufferbloatResult && (
+          <div className={`verdict-card verdict-${bufferbloatResult.verdict}`} style={{ marginTop: "14px" }}>
+            <div className="verdict-header">
+              <div>
+                <span className="verdict-tag">Grado de Bufferbloat</span>
+                <h3 className="verdict-title">Calificación: Grado {bufferbloatResult.grade}</h3>
+                <span className="meta-mono" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                  Host evaluado: {bufferbloatResult.target_host} · Muestras: {bufferbloatResult.idle_samples_count} reposo / {bufferbloatResult.loaded_samples_count} bajo carga
+                </span>
+              </div>
+              <div className="verdict-hz-large">
+                <span className="hz-number">+{bufferbloatResult.delta_ms}</span>
+                <span className="hz-unit">ms colapso</span>
+              </div>
+            </div>
+
+            <div className="verdict-grid">
+              <div className="verdict-stat">
+                <span className="stat-label">Latencia en Reposo (Idle):</span>
+                <span className="stat-value">{bufferbloatResult.idle_avg_ms} ms</span>
+                <span className="stat-sub">RTT sin saturación</span>
+              </div>
+              <div className="verdict-stat">
+                <span className="stat-label">Latencia Bajo Carga (Loaded):</span>
+                <span className="stat-value">{bufferbloatResult.loaded_avg_ms} ms</span>
+                <span className="stat-sub">RTT con saturación TCP</span>
+              </div>
+              <div className="verdict-stat">
+                <span className="stat-label">Incremento Porcentual:</span>
+                <span
+                  className="stat-value"
+                  style={{
+                    color: bufferbloatResult.delta_pct > 30 ? "#ef4444" : "#10b981",
+                  }}
+                >
+                  +{bufferbloatResult.delta_pct}%
+                </span>
+                <span className="stat-sub">Crecimiento de la cola del router</span>
+              </div>
+              <div className="verdict-stat">
+                <span className="stat-label">Recomendación SQM:</span>
+                <span className="stat-value" style={{ fontSize: "15px" }}>
+                  {bufferbloatResult.sqm_recommended ? "Requiere SQM (CAKE / FQ-CoDel)" : "Router Estable"}
+                </span>
+                <span className="stat-sub">
+                  {bufferbloatResult.sqm_recommended ? "Alta congestión en cola" : "Sin hinchazón de buffer"}
+                </span>
+              </div>
+            </div>
+
+            <div className="verdict-footer">
+              <div className="verdict-explanation">
+                <p>
+                  <strong>Diagnóstico de Red: </strong>
+                  {bufferbloatResult.explanation}
+                </p>
+                {bufferbloatResult.sqm_recommended && (
+                  <p style={{ marginTop: "4px", fontSize: "12px", color: "var(--text-secondary)" }}>
+                    💡 Ve a la pestaña <strong>Guías In-Game</strong> para aprender a activar SQM / CAKE en tu router doméstico.
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-small"
+                onClick={() => setBufferbloatResult(null)}
+              >
+                Limpiar Bufferbloat
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* SECCIÓN 10: TOTAL ENGAGEMENT LATENCY (TEL) & VENTANA DE VENTAJA */}
+      <section className="dashboard-section polling-analysis-section">
+        <div className="polling-box-header">
+          <div>
+            <h2 className="section-heading" style={{ margin: 0 }}>
+              10. Total Engagement Latency (TEL) & Ventana de Ventaja Competitiva
             </h2>
             <p className="tweak-desc" style={{ marginBottom: 0, marginTop: "4px" }}>
               Calcula matemáticamente el retardo integral de la cadena: <code>Polling USB</code> + <code>Frame Time</code> + <code>Scanout Monitor</code> + <code>One-Way Ping</code> + <code>Mitad de Tick</code>.

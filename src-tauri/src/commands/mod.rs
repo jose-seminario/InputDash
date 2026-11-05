@@ -8,7 +8,9 @@ use crate::core::engine::{
     Engine, MutationOutcome, PresetOutcome, RevertAllOutcome, SimulationItem, TweakStatusView,
 };
 use crate::core::log::{self, ChangeLogEntry};
+use crate::diag::bufferbloat::{self, BufferbloatResult};
 use crate::diag::dpc::{self, DpcAnalysisResult};
+use crate::diag::export::{self, ExportResult, FullExportPayload};
 use crate::diag::frametime::{self, FrametimeAnalysisResult};
 use crate::diag::network::{self, NetworkAnalysisResult};
 use crate::diag::polling::{self, PollingAnalysisResult};
@@ -426,5 +428,23 @@ pub fn update_game_profile(
 #[tauri::command]
 pub fn get_timer_resolution() -> Option<TimerResolutionStatus> {
     crate::sys::timer::query_timer_resolution()
+}
+
+// ---------------------------------------------------------------------------
+// Bufferbloat y Exportación de Reporte Completo (Etapa 7)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn start_bufferbloat_analysis(host: Option<String>) -> AppResult<BufferbloatResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        bufferbloat::run_bufferbloat_test(host.as_deref())
+    })
+    .await
+    .map_err(|e| AppError::NetworkAnalysis(format!("Error en tarea de bufferbloat: {e}")))?
+}
+
+#[tauri::command]
+pub fn export_full_report(payload: FullExportPayload) -> AppResult<ExportResult> {
+    export::export_report(&payload)
 }
 

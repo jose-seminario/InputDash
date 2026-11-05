@@ -82,6 +82,8 @@ pub fn run() {
             commands::toggle_game_profile,
             commands::update_game_profile,
             commands::get_timer_resolution,
+            commands::start_bufferbloat_analysis,
+            commands::export_full_report,
         ])
         .run(tauri::generate_context!())
         .expect("error fatal al iniciar la ventana de Tauri");

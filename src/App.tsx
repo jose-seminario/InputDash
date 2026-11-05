@@ -4,6 +4,7 @@ import { ABTestingView } from "./views/ABTestingView";
 import { AntiMythsView } from "./views/AntiMythsView";
 import { DashboardView } from "./views/DashboardView";
 import { GameProfilesView } from "./views/GameProfilesView";
+import { InGameGuidesView } from "./views/InGameGuidesView";
 import { OptimizeView } from "./views/OptimizeView";
 import { SafetyView } from "./views/SafetyView";
 
@@ -92,6 +93,13 @@ export function App() {
         </button>
         <button
           type="button"
+          className={`nav-tab ${activeTab === "guias" ? "nav-tab-active" : ""}`}
+          onClick={() => setActiveTab("guias")}
+        >
+          Guías In-Game
+        </button>
+        <button
+          type="button"
           className={`nav-tab ${activeTab === "seguridad" ? "nav-tab-active" : ""}`}
           onClick={() => setActiveTab("seguridad")}
         >
@@ -153,6 +161,7 @@ export function App() {
         {activeTab === "optimizar" && <OptimizeView />}
         {activeTab === "ab_testing" && <ABTestingView />}
         {activeTab === "perfiles" && <GameProfilesView />}
+        {activeTab === "guias" && <InGameGuidesView />}
         {activeTab === "seguridad" && <SafetyView />}
         {activeTab === "antimitos" && <AntiMythsView />}
       </main>

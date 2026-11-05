@@ -4,14 +4,17 @@ import type {
   BackupSnapshot,
   BlindPublicState,
   BlindResult,
+  BufferbloatResult,
   ChangeLogEntry,
   CoreContentionInfo,
   CpuTopologyInfo,
   DpcAnalysisResult,
   DriversInfo,
+  ExportResult,
   ExternalLdatInput,
   ExternalLdatResult,
   FrametimeAnalysisResult,
+  FullExportPayload,
   GameProfile,
   HardwareDiagnosticInfo,
   MutationOutcome,
@@ -239,5 +242,21 @@ export async function ipcUpdateGameProfile(profile: GameProfile): Promise<GamePr
 
 export async function ipcGetTimerResolution(): Promise<TimerResolutionStatus | null> {
   return invoke<TimerResolutionStatus | null>("get_timer_resolution");
+}
+
+// ---------------------------------------------------------------------------
+// Bufferbloat y Exportación de Reporte IPC (Etapa 7)
+// ---------------------------------------------------------------------------
+
+export async function ipcStartBufferbloatAnalysis(
+  host?: string
+): Promise<BufferbloatResult> {
+  return invoke<BufferbloatResult>("start_bufferbloat_analysis", { host });
+}
+
+export async function ipcExportFullReport(
+  payload: FullExportPayload
+): Promise<ExportResult> {
+  return invoke<ExportResult>("export_full_report", { payload });
 }
 
