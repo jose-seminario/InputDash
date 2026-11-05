@@ -69,6 +69,36 @@ const VERIFIED_PRINCIPLES: EducationalPrinciple[] = [
     whatActuallyWorks:
       "Activar NVIDIA Reflex (On + Boost) o AMD Anti-Lag 2 dentro del juego para vaciar la cola de renderizado, o aplicar VRR (G-Sync/FreeSync) + V-Sync activado en panel de control + límite de fotogramas ~3 FPS por debajo de la tasa de refresco del monitor.",
   },
+  {
+    id: "win32_priority_separation",
+    title: "Modificar Win32PrioritySeparation en el Registro para 'Priorizar Juegos'",
+    claim:
+      "Mito popular: 'Ajustar Win32PrioritySeparation a valores esotéricos (como 26 hex o 28 hex) reduce la latencia del ratón y de la CPU'.",
+    reality:
+      "Las pruebas con instrumental físico (NVIDIA LDAT) y herramientas de telemetría de cuadros (PresentMon) demuestran cero reducción de latencia. Peor aún, forzar una separación arbitraria del quantum de planificación del kernel puede provocar inanición de hilos (thread starvation), donde los hilos del controlador del ratón USB y de la pila de red compiten por tiempo de CPU con el juego, causando micro-congelamientos y tirones.",
+    whatActuallyWorks:
+      "Mantener la gestión de hilos nativa de Windows 10/11 con Game Mode activo, permitiendo que el planificador del kernel y Windows Thread Director asignen los quantums dinámicamente según la carga.",
+  },
+  {
+    id: "disable_network_offloads",
+    title: "Desactivar Hardware Offloading de Red (Checksum / Large Send Offload)",
+    claim:
+      "Mito popular: 'Desactivar Large Send Offload (LSO) y Checksum Offload en las propiedades del adaptador de red reduce el input lag online'.",
+    reality:
+      "Las tarjetas de red modernas procesan la verificación y segmentación de paquetes mediante silicio dedicado (ASIC). Forzar a la CPU del sistema a calcular manualmente los checksums y fragmentar paquetes satura los núcleos del procesador por ráfagas de interrupciones innecesarias, degradando los FPS y los frametimes en lugar de reducir la latencia.",
+    whatActuallyWorks:
+      "Dejar el Hardware Offloading habilitado en el controlador de red. Para optimizar la latencia de red real, configurar SQM (CAKE / FQ-CoDel) en el router contra el Bufferbloat y utilizar conexión Ethernet cableada.",
+  },
+  {
+    id: "mouse_8000hz_myth",
+    title: "Ratones de 8000 Hz & Motion Sync: La Falacia del Máximo Polling Rate",
+    claim:
+      "Mito popular: 'Configurar el ratón en 8000 Hz siempre es mejor y garantiza menor input lag en cualquier juego'.",
+    reality:
+      "A 8000 Hz el ratón genera 8000 interrupciones por segundo por núcleo, lo que colapsa los controladores del bus USB y satura los hilos principales de la CPU en la mayoría de placas base, provocando micro-stutters y caídas bruscas de FPS durante barridos rápidos. El punto de equilibrio real, seguro y consistente es 2000 Hz. Además, Motion Sync añade algo de latencia a 1000 Hz (~0.5 ms para alinear lecturas con el intervalo de sondeo), pero a 2000 Hz o superior esa penalización es prácticamente nula.",
+    whatActuallyWorks:
+      "Utilizar 2000 Hz en ratones de alto rendimiento con sensores modernos y un puerto USB 3.0 directo a la placa base, obteniendo latencia sub-milisegundo sin sobrecargar el bus de interrupciones del procesador.",
+  },
 ];
 
 export function AntiMythsView() {

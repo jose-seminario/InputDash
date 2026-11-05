@@ -2,7 +2,7 @@ import { useState } from "react";
 
 export function InGameGuidesView() {
   const [activeCategory, setActiveCategory] = useState<
-    "reflex" | "vrr" | "mouse" | "router"
+    "reflex" | "vrr" | "mouse" | "router" | "hvci"
   >("reflex");
 
   return (
@@ -47,6 +47,13 @@ export function InGameGuidesView() {
           onClick={() => setActiveCategory("router")}
         >
           🌐 Mitigación de Bufferbloat (SQM)
+        </button>
+        <button
+          type="button"
+          className={`ab-subtab ${activeCategory === "hvci" ? "active" : ""}`}
+          onClick={() => setActiveCategory("hvci")}
+        >
+          🛡️ Integridad de Memoria (HVCI)
         </button>
       </div>
 
@@ -253,6 +260,61 @@ export function InGameGuidesView() {
                 <strong>Regla del 90-95%:</strong> Configura el límite de velocidad de descarga y subida al <strong>90% - 95%</strong> de la velocidad real contratada con tu proveedor. Al dejar un 5% de margen, el router asume el control del búfer antes de que el módem del proveedor lo sature.
               </li>
             </ol>
+          </div>
+        </div>
+      )}
+
+      {/* 5. GUÍA: INTEGRIDAD DE MEMORIA (HVCI) Y VBS */}
+      {activeCategory === "hvci" && (
+        <div className="guide-content-panel panel">
+          <div className="guide-header">
+            <h3>Integridad de Memoria (HVCI) y Seguridad Basada en Virtualización (VBS)</h3>
+            <span className="badge badge-accent">+5% a +25% en 1% Lows (Estabilidad)</span>
+          </div>
+
+          <div className="guide-box guide-box-highlight">
+            <h4>¿Por qué la virtualización del kernel impacta el rendimiento de juegos?</h4>
+            <p>
+              En Windows 11, la <strong>Seguridad Basada en Virtualización (VBS)</strong> y la <strong>Integridad de Memoria (HVCI / Hypervisor-Protected Code Integrity)</strong> vienen habilitadas por defecto. Estas funciones aíslan el subsistema del kernel dentro de un hipervisor seguro (SLAT/EPT).
+            </p>
+            <p>
+              <strong>Impacto empírico:</strong> Aunque los FPS promedio se mantienen similares, las constantes traducciones de tablas de páginas entre el hipervisor y el procesador provocan micro-pausas periódicas de la CPU. Pruebas de telemetría demuestran que desactivar HVCI proporciona una <strong>mejora del 5% al 25% en los percentiles 1% y 0.1% lows</strong>, erradicando micro-stutters durante escenarios de alta densidad de físicas y partículas.
+            </p>
+          </div>
+
+          <div className="guide-grid-2col">
+            <div className="guide-step-card">
+              <h4>Pasos para Desactivar HVCI en Windows 11</h4>
+              <ol className="sqm-steps-list">
+                <li>
+                  Abre el menú de inicio y escribe <strong>Seguridad de Windows</strong> (Windows Security).
+                </li>
+                <li>
+                  Dirígete a la pestaña <strong>Seguridad del Dispositivo</strong> (Device Security).
+                </li>
+                <li>
+                  En la sección <em>Aislamiento del núcleo</em>, haz clic en <strong>Detalles de aislamiento del núcleo</strong>.
+                </li>
+                <li>
+                  Cambia el interruptor de <strong>Integridad de memoria</strong> a la posición <code>Desactivado (OFF)</code>.
+                </li>
+                <li>
+                  <strong>Reinicia el sistema</strong> para que los cambios se apliquen a nivel de arranque del hipervisor.
+                </li>
+              </ol>
+            </div>
+
+            <div className="guide-step-card">
+              <h4>Advertencia Crítica de Seguridad (Trade-off)</h4>
+              <div className="guide-alert-box">
+                <p>
+                  <strong>¿Cuándo conviene desactivarlo?:</strong> Exclusivamente en <strong>equipos dedicados a gaming competitivo y eSports</strong> donde se busque la máxima estabilidad en frametimes y se practique navegación segura.
+                </p>
+                <p style={{ marginTop: "0.5rem" }}>
+                  <strong>¿Cuándo NO desactivarlo?:</strong> Si utilizas este equipo para <strong>trabajo corporativo, transacciones bancarias críticas o manejo de software no confiable</strong>, mantén la Integridad de Memoria ACTIVADA. HVCI es una de las barreras más sólidas de Windows contra exploits de inyección de código a nivel de kernel y drivers maliciosos (Bring Your Own Vulnerable Driver).
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}
