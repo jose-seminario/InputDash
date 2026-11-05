@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useDiagStore } from "../store/useDiagStore";
 
 export function DashboardView() {
@@ -9,24 +9,42 @@ export function DashboardView() {
     nicModeration,
     usbTopology,
     networkResult,
+    frametimeResult,
+    dpcResult,
+    telReport,
     targetHost,
     isHardwareLoading,
     isPollingAnalyzing,
     isNetworkAnalyzing,
     isUsbLoading,
     isDriversLoading,
+    isFrametimeAnalyzing,
+    isDpcAnalyzing,
+    isTelLoading,
     pollingSecondsLeft,
+    frametimeSecondsLeft,
+    dpcSecondsLeft,
     pollingError,
     networkError,
     hardwareError,
+    frametimeError,
+    dpcError,
+    telError,
     fetchAllDiagnostics,
     startPollingAnalysis,
     startNetworkAnalysis,
+    startFrametimeAnalysis,
+    startDpcAnalysis,
+    updateTelReport,
     setTargetHost,
     clearPollingResult,
     clearNetworkResult,
+    clearFrametimeResult,
+    clearDpcResult,
     dismissDiagError,
   } = useDiagStore();
+
+  const [selectedTickrate, setSelectedTickrate] = useState<number>(64);
 
   useEffect(() => {
     void fetchAllDiagnostics();
@@ -38,6 +56,8 @@ export function DashboardView() {
   const keyboards = hardware?.keyboards ?? [];
 
   const isAnyLoading = isHardwareLoading || isDriversLoading || isUsbLoading;
+  const anyActiveAnalysis =
+    isPollingAnalyzing || isNetworkAnalyzing || isFrametimeAnalyzing || isDpcAnalyzing;
 
   const formatVram = (mb: number) => {
     if (mb >= 1024) {
@@ -47,14 +67,27 @@ export function DashboardView() {
     return `${mb} MB`;
   };
 
+  const handleTickrateChange = (newTickrate: number) => {
+    setSelectedTickrate(newTickrate);
+    void updateTelReport(newTickrate);
+  };
+
+  const activeError =
+    pollingError ||
+    networkError ||
+    hardwareError ||
+    frametimeError ||
+    dpcError ||
+    telError;
+
   return (
     <div className="dashboard-container">
       {/* Banner de errores / advertencias */}
-      {(pollingError || networkError || hardwareError) && (
+      {activeError && (
         <div className="banner banner-error" role="alert">
           <div>
             <span className="banner-code">[DIAG_AVISO]</span>
-            <span>{pollingError || networkError || hardwareError}</span>
+            <span>{activeError}</span>
           </div>
           <button type="button" className="banner-close" onClick={dismissDiagError}>
             Cerrar
@@ -71,7 +104,7 @@ export function DashboardView() {
           <button
             type="button"
             className="btn btn-secondary btn-small"
-            disabled={isAnyLoading || isPollingAnalyzing || isNetworkAnalyzing}
+            disabled={isAnyLoading || anyActiveAnalysis}
             onClick={() => void fetchAllDiagnostics()}
           >
             {isAnyLoading ? "Detectando..." : "Actualizar Todo"}
@@ -365,7 +398,7 @@ export function DashboardView() {
           <button
             type="button"
             className="btn btn-primary btn-large"
-            disabled={isPollingAnalyzing || isNetworkAnalyzing}
+            disabled={anyActiveAnalysis}
             onClick={() => void startPollingAnalysis()}
           >
             {isPollingAnalyzing ? `Midiendo... ¡Mueve el mouse! (${pollingSecondsLeft}s)` : "Iniciar Análisis de Polling (4 seg)"}
@@ -423,25 +456,15 @@ export function DashboardView() {
 
             <div className="verdict-footer">
               <div className="verdict-explanation">
-                {pollingResult.status === "optimo" && (
-                  <p>
-                    <strong>Veredicto Óptimo:</strong> El ratón entrega una tasa de refresco cercana a 1000 Hz o superior
-                    con jitter inferior a 0.1 ms. La ruta de entrada USB reporta paquetes limpios y uniformes sin micro-cortes.
-                  </p>
-                )}
-                {pollingResult.status === "aceptable" && (
-                  <p>
-                    <strong>Veredicto Aceptable:</strong> Tasa de sondeo entre 500 Hz y 1000 Hz. Apto para juego competitivo,
-                    aunque con pequeñas fluctuaciones de jitter atribuibles a controladores o congestión del bus USB.
-                  </p>
-                )}
-                {pollingResult.status === "critico" && (
-                  <p>
-                    <strong>Veredicto Crítico:</strong> Tasa de sondeo inferior a 125 Hz o transporte Bluetooth con latencia
-                    inconsistente. Recomendación: conectar el receptor a un puerto USB nativo directo (sin hubs) y verificar
-                    que la Suspensión Selectiva de USB esté desactivada en la pestaña Optimizar.
-                  </p>
-                )}
+                <p>
+                  <strong>Evaluación Técnica: </strong>
+                  {pollingResult.status === "optimo" &&
+                    "El ratón entrega una tasa de refresco uniforme con jitter despreciable (< 0.1 ms). Los micro-pulsos viajan limpios al kernel."}
+                  {pollingResult.status === "aceptable" &&
+                    "Tasa de sondeo entre 500 Hz y 1000 Hz. Apto para juego competitivo con pequeñas variaciones atribuibles a congestión de bus."}
+                  {pollingResult.status === "critico" &&
+                    "Tasa de sondeo deficiente o transporte Bluetooth. Conecta el receptor directo al puerto nativo de la placa base."}
+                </p>
               </div>
               <button
                 type="button"
@@ -455,12 +478,219 @@ export function DashboardView() {
         )}
       </section>
 
-      {/* SECCIÓN 6: ANÁLISIS DE RED (ICMP + UDP JITTER) */}
+      {/* SECCIÓN 6: ANÁLISIS DE FRAME TIME ETW (DXGI / DxgKrnl) */}
       <section className="dashboard-section polling-analysis-section">
         <div className="polling-box-header">
           <div>
             <h2 className="section-heading" style={{ margin: 0 }}>
-              6. Diagnóstico de Red y Jitter UDP (Tickrate 64)
+              6. Medición de Frame Times vía ETW (Microsoft-Windows-DxgKrnl / DXGI)
+            </h2>
+            <p className="tweak-desc" style={{ marginBottom: 0, marginTop: "4px" }}>
+              Rastreo de eventos ETW de presentación 3D durante <strong>10 segundos</strong> con <code>ProcessTrace</code> y guardas RAII.
+              Abre un juego 3D o benchmark en pantalla completa o ventana antes de pulsar analizar.
+            </p>
+          </div>
+        </div>
+
+        <div className="polling-action-bar">
+          <button
+            type="button"
+            className="btn btn-primary btn-large"
+            disabled={anyActiveAnalysis}
+            onClick={() => void startFrametimeAnalysis()}
+          >
+            {isFrametimeAnalyzing
+              ? `Capturando cuadros ETW... (${frametimeSecondsLeft}s)`
+              : "Analizar Frame Time (10 seg)"}
+          </button>
+
+          {isFrametimeAnalyzing && (
+            <div className="polling-spinner-container">
+              <div className="polling-spinner" />
+              <span className="polling-spinner-text">
+                Rastreando eventos de presentación DXGI/DxgKrnl ({frametimeSecondsLeft}s restantes)...
+              </span>
+            </div>
+          )}
+        </div>
+
+        {frametimeResult && !isFrametimeAnalyzing && (
+          <div className={`verdict-card verdict-${frametimeResult.status}`}>
+            <div className="verdict-header">
+              <div>
+                <span className="verdict-tag">Veredicto de Consistencia Gráfica</span>
+                <h3 className="verdict-title">{frametimeResult.status_label}</h3>
+                <span className="meta-mono" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                  PID del proceso 3D: {frametimeResult.process_id} · {frametimeResult.total_frames} cuadros registrados en 10s
+                </span>
+              </div>
+              <div className="verdict-hz-large">
+                <span className="hz-number">{frametimeResult.avg_frametime_ms}</span>
+                <span className="hz-unit">ms frame</span>
+              </div>
+            </div>
+
+            <div className="verdict-grid">
+              <div className="verdict-stat">
+                <span className="stat-label">FPS Promedio:</span>
+                <span className="stat-value">{frametimeResult.avg_fps} FPS</span>
+                <span className="stat-sub">1000 / Frame Time medio</span>
+              </div>
+              <div className="verdict-stat">
+                <span className="stat-label">1% Low (Percentil 1%):</span>
+                <span
+                  className="stat-value"
+                  style={{
+                    color: frametimeResult.fps_1pct_low < 60 ? "#ef4444" : "var(--text-primary)",
+                  }}
+                >
+                  {frametimeResult.fps_1pct_low} FPS
+                </span>
+                <span className="stat-sub">Mide consistencia ante micro-stuttering</span>
+              </div>
+              <div className="verdict-stat">
+                <span className="stat-label">0.1% Low (Picos Críticos):</span>
+                <span className="stat-value">{frametimeResult.fps_01pct_low} FPS</span>
+                <span className="stat-sub">Peores tirones de la muestra</span>
+              </div>
+              <div className="verdict-stat">
+                <span className="stat-label">Rango Min / Max:</span>
+                <span className="stat-value">
+                  {frametimeResult.min_frametime_ms} / {frametimeResult.max_frametime_ms} ms
+                </span>
+                <span className="stat-sub">Dispersión del ciclo de renderizado</span>
+              </div>
+            </div>
+
+            <div className="verdict-footer">
+              <div className="verdict-explanation">
+                <p>
+                  <strong>Diagnóstico de Frame Pacing: </strong>
+                  {frametimeResult.explanation}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-small"
+                onClick={clearFrametimeResult}
+              >
+                Limpiar Frame Time
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* SECCIÓN 7: ANÁLISIS DE LATENCIA DPC / ISR DEL KERNEL */}
+      <section className="dashboard-section polling-analysis-section">
+        <div className="polling-box-header">
+          <div>
+            <h2 className="section-heading" style={{ margin: 0 }}>
+              7. Latencia DPC / ISR del Kernel (NT Kernel Logger)
+            </h2>
+            <p className="tweak-desc" style={{ marginBottom: 0, marginTop: "4px" }}>
+              Captura eventos de interrupción diferida (DPC) y llamadas de servicio de interrupción (ISR) durante <strong>10 segundos</strong>.
+              Identifica si controladores de audio, red o almacenamiento generan picos de retardo en el hilo del procesador.
+            </p>
+          </div>
+        </div>
+
+        <div className="polling-action-bar">
+          <button
+            type="button"
+            className="btn btn-primary btn-large"
+            disabled={anyActiveAnalysis}
+            onClick={() => void startDpcAnalysis()}
+          >
+            {isDpcAnalyzing
+              ? `Analizando DPC/ISR en Kernel... (${dpcSecondsLeft}s)`
+              : "Analizar DPC / ISR (10 seg)"}
+          </button>
+
+          {isDpcAnalyzing && (
+            <div className="polling-spinner-container">
+              <div className="polling-spinner" />
+              <span className="polling-spinner-text">
+                Rastreando interrupciones de controladores con NT Kernel Logger ({dpcSecondsLeft}s restantes)...
+              </span>
+            </div>
+          )}
+        </div>
+
+        {dpcResult && !isDpcAnalyzing && (
+          <div className={`verdict-card verdict-${dpcResult.status}`}>
+            <div className="verdict-header">
+              <div>
+                <span className="verdict-tag">Veredicto de Latencia DPC de Drivers</span>
+                <h3 className="verdict-title">{dpcResult.status_label}</h3>
+                <span className="meta-mono" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                  {dpcResult.total_events} eventos de interrupción analizados en 10s
+                </span>
+              </div>
+              <div className="verdict-hz-large">
+                <span className="hz-number">{dpcResult.highest_dpc_us}</span>
+                <span className="hz-unit">µs pico</span>
+              </div>
+            </div>
+
+            <div style={{ marginTop: "12px" }}>
+              <strong style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                Top 5 Controladores con Mayor Tiempo DPC Registrado:
+              </strong>
+              <div className="usb-devices-list" style={{ marginTop: "8px" }}>
+                {dpcResult.top_drivers.map((drv) => (
+                  <div key={drv.driver_name} className="usb-dev-row">
+                    <div className="usb-dev-info">
+                      <span className="usb-dev-name" style={{ fontFamily: "monospace", fontWeight: 600 }}>
+                        {drv.driver_name}
+                      </span>
+                      <span className="meta-mono" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                        {drv.total_calls} ejecuciones · Promedio: {drv.avg_dpc_us} µs
+                      </span>
+                    </div>
+                    <div className="usb-dev-badges">
+                      <span
+                        className={`badge ${
+                          drv.max_dpc_us < 500
+                            ? "badge-applied"
+                            : drv.max_dpc_us < 1000
+                            ? "badge-warn"
+                            : "badge-blocked"
+                        }`}
+                      >
+                        Pico: {drv.max_dpc_us} µs
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="verdict-footer" style={{ marginTop: "14px" }}>
+              <div className="verdict-explanation">
+                <p>
+                  <strong>Diagnóstico de Drivers: </strong>
+                  {dpcResult.explanation}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-small"
+                onClick={clearDpcResult}
+              >
+                Limpiar DPC
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* SECCIÓN 8: ANÁLISIS DE RED (ICMP + UDP JITTER) */}
+      <section className="dashboard-section polling-analysis-section">
+        <div className="polling-box-header">
+          <div>
+            <h2 className="section-heading" style={{ margin: 0 }}>
+              8. Diagnóstico de Red y Jitter UDP (Tickrate 64)
             </h2>
             <p className="tweak-desc" style={{ marginBottom: 0, marginTop: "4px" }}>
               Ejecuta 20 solicitudes ICMP Echo nativas (<code>IcmpSendEcho</code>) y 50 paquetes UDP a intervalos de 15.6 ms
@@ -488,7 +718,7 @@ export function DashboardView() {
           <button
             type="button"
             className="btn btn-primary btn-large"
-            disabled={isNetworkAnalyzing || isPollingAnalyzing}
+            disabled={anyActiveAnalysis}
             onClick={() => void startNetworkAnalysis()}
           >
             {isNetworkAnalyzing ? "Midiendo Red (ICMP + UDP)..." : "Analizar Red"}
@@ -567,6 +797,135 @@ export function DashboardView() {
                 onClick={clearNetworkResult}
               >
                 Limpiar Red
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* SECCIÓN 9: TOTAL ENGAGEMENT LATENCY (TEL) & VENTANA DE VENTAJA */}
+      <section className="dashboard-section polling-analysis-section">
+        <div className="polling-box-header">
+          <div>
+            <h2 className="section-heading" style={{ margin: 0 }}>
+              9. Total Engagement Latency (TEL) & Ventana de Ventaja Competitiva
+            </h2>
+            <p className="tweak-desc" style={{ marginBottom: 0, marginTop: "4px" }}>
+              Calcula matemáticamente el retardo integral de la cadena: <code>Polling USB</code> + <code>Frame Time</code> + <code>Scanout Monitor</code> + <code>One-Way Ping</code> + <code>Mitad de Tick</code>.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <span className="meta-label">Tickrate Servidor:</span>
+            <button
+              type="button"
+              className={`btn btn-small ${selectedTickrate === 64 ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => handleTickrateChange(64)}
+            >
+              64 Tick
+            </button>
+            <button
+              type="button"
+              className={`btn btn-small ${selectedTickrate === 128 ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => handleTickrateChange(128)}
+            >
+              128 Tick
+            </button>
+          </div>
+        </div>
+
+        {telReport && (
+          <div className={`verdict-card verdict-${telReport.verdict}`} style={{ marginTop: "14px" }}>
+            <div className="verdict-header">
+              <div>
+                <span className="verdict-tag">Índice Científico de Latencia Total</span>
+                <h3 className="verdict-title">{telReport.verdict_label}</h3>
+                <span className="meta-mono" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                  {telReport.is_complete
+                    ? "✓ Todos los componentes físicos y de red han sido verificados"
+                    : `⚠ Diagnóstico Parcial: Faltan ${telReport.missing_components.length} mediciones`}
+                </span>
+              </div>
+              <div className="verdict-hz-large">
+                <span className="hz-number">{telReport.total_tel_ms}</span>
+                <span className="hz-unit">ms TEL</span>
+              </div>
+            </div>
+
+            {/* Desglose por componentes */}
+            <div style={{ marginTop: "14px" }}>
+              <strong style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                Desglose Paso a Paso de la Cadena de Latencia:
+              </strong>
+              <div className="usb-devices-list" style={{ marginTop: "8px" }}>
+                {telReport.components.map((comp) => (
+                  <div key={comp.name} className="usb-dev-row">
+                    <div className="usb-dev-info">
+                      <span className="usb-dev-name">{comp.name}</span>
+                      <span className="meta-mono" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                        {comp.description} · Fórmula: <code>{comp.formula}</code>
+                      </span>
+                    </div>
+                    <div className="usb-dev-badges">
+                      <span className={`badge ${comp.is_measured ? "badge-applied" : "badge-default"}`}>
+                        {comp.is_measured ? "Medido" : "Estimado"}
+                      </span>
+                      <strong className="meta-mono" style={{ minWidth: "65px", textAlign: "right" }}>
+                        +{comp.latency_ms} ms
+                      </strong>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Ventana de ventaja vs enemigo */}
+            <div style={{ marginTop: "16px" }}>
+              <strong style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                Ventana de Ventaja en Duelo de Reacción (vs Ping Enemigo):
+              </strong>
+              <div className="verdict-grid" style={{ marginTop: "8px" }}>
+                {telReport.enemy_comparisons.map((c) => (
+                  <div key={c.enemy_ping_ms} className="verdict-stat">
+                    <span className="stat-label">Oponente con Ping {c.enemy_ping_ms} ms:</span>
+                    <span
+                      className="stat-value"
+                      style={{
+                        color:
+                          c.status === "ventaja"
+                            ? "#10b981"
+                            : c.status === "desventaja"
+                            ? "#ef4444"
+                            : "var(--text-primary)",
+                      }}
+                    >
+                      {c.advantage_ms > 0 ? `+${c.advantage_ms}` : c.advantage_ms} ms
+                    </span>
+                    <span className="stat-sub">
+                      {c.status === "ventaja"
+                        ? "Ventaja de registro en servidor"
+                        : c.status === "desventaja"
+                        ? "Desventaja de latencia"
+                        : "Respuesta sincronizada"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="verdict-footer" style={{ marginTop: "16px" }}>
+              <div className="verdict-explanation">
+                <p>
+                  <strong>Evaluación Integral TEL: </strong>
+                  {telReport.explanation}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-small"
+                disabled={isTelLoading}
+                onClick={() => void updateTelReport(selectedTickrate)}
+              >
+                {isTelLoading ? "Recalculando..." : "Recalcular TEL"}
               </button>
             </div>
           </div>

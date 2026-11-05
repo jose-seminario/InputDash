@@ -15,6 +15,10 @@ import type {
   NicModerationInfo,
   NetworkAnalysisResult,
   UsbTopologyInfo,
+  FrametimeAnalysisResult,
+  DpcAnalysisResult,
+  TelInputData,
+  TelReportResult,
 } from "../types/tweak";
 
 export function formatIpcError(err: unknown): StructuredBackendError {
@@ -101,4 +105,16 @@ export async function ipcGetUsbTopology(): Promise<UsbTopologyInfo> {
 
 export async function ipcGetNicModeration(): Promise<NicModerationInfo> {
   return invoke<NicModerationInfo>("get_nic_moderation");
+}
+
+export async function ipcStartFrametimeAnalysis(): Promise<FrametimeAnalysisResult> {
+  return invoke<FrametimeAnalysisResult>("start_frametime_analysis");
+}
+
+export async function ipcStartDpcAnalysis(): Promise<DpcAnalysisResult> {
+  return invoke<DpcAnalysisResult>("start_dpc_analysis");
+}
+
+export async function ipcCalculateTel(inputData: TelInputData): Promise<TelReportResult> {
+  return invoke<TelReportResult>("calculate_tel", { inputData });
 }

@@ -233,3 +233,70 @@ export interface UsbTopologyInfo {
   controllers: UsbHostControllerGroup[];
   any_contention_detected: boolean;
 }
+
+export interface FrametimeAnalysisResult {
+  process_id: number;
+  total_frames: number;
+  duration_seconds: number;
+  avg_frametime_ms: number;
+  min_frametime_ms: number;
+  max_frametime_ms: number;
+  avg_fps: number;
+  fps_1pct_low: number;
+  fps_01pct_low: number;
+  status: "optimo" | "aceptable" | "critico";
+  status_label: string;
+  explanation: string;
+}
+
+export interface DriverDpcInfo {
+  driver_name: string;
+  max_dpc_us: number;
+  avg_dpc_us: number;
+  total_calls: number;
+}
+
+export interface DpcAnalysisResult {
+  duration_seconds: number;
+  total_events: number;
+  highest_dpc_us: number;
+  top_drivers: DriverDpcInfo[];
+  status: "optimo" | "aceptable" | "critico";
+  status_label: string;
+  explanation: string;
+}
+
+export interface TelInputData {
+  mouse_avg_interval_ms?: number;
+  mouse_polling_hz?: number;
+  avg_frametime_ms?: number;
+  monitor_refresh_hz?: number;
+  network_avg_ping_ms?: number;
+  tickrate?: number;
+}
+
+export interface TelComponent {
+  name: string;
+  description: string;
+  latency_ms: number;
+  is_measured: boolean;
+  formula: string;
+}
+
+export interface TelEnemyAdvantage {
+  enemy_ping_ms: number;
+  enemy_tel_ms: number;
+  advantage_ms: number;
+  status: "ventaja" | "desventaja" | "neutral";
+}
+
+export interface TelReportResult {
+  total_tel_ms: number;
+  is_complete: boolean;
+  missing_components: string[];
+  components: TelComponent[];
+  enemy_comparisons: TelEnemyAdvantage[];
+  verdict: "optimo" | "aceptable" | "critico" | "incompleto";
+  verdict_label: string;
+  explanation: string;
+}

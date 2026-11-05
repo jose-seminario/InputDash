@@ -5,8 +5,11 @@ use crate::core::engine::{
     Engine, MutationOutcome, PresetOutcome, RevertAllOutcome, SimulationItem, TweakStatusView,
 };
 use crate::core::log::{self, ChangeLogEntry};
+use crate::diag::dpc::{self, DpcAnalysisResult};
+use crate::diag::frametime::{self, FrametimeAnalysisResult};
 use crate::diag::network::{self, NetworkAnalysisResult};
 use crate::diag::polling::{self, PollingAnalysisResult};
+use crate::diag::report::{self, TelInputData, TelReportResult};
 use crate::error::{AppError, AppResult};
 use crate::sys::drivers::{self, DriversInfo, NicModerationInfo};
 use crate::sys::hardware::{self, HardwareDiagnosticInfo, UsbTopologyInfo};
@@ -132,4 +135,27 @@ pub fn get_usb_topology() -> AppResult<UsbTopologyInfo> {
 #[tauri::command]
 pub fn get_nic_moderation() -> AppResult<NicModerationInfo> {
     drivers::get_nic_moderation()
+}
+
+#[tauri::command]
+pub async fn start_frametime_analysis() -> AppResult<FrametimeAnalysisResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        frametime::run_frametime_analysis()
+    })
+    .await
+    .map_err(|e| AppError::FrametimeAnalysis(format!("Error en tarea de frame time: {e}")))?
+}
+
+#[tauri::command]
+pub async fn start_dpc_analysis() -> AppResult<DpcAnalysisResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        dpc::run_dpc_analysis()
+    })
+    .await
+    .map_err(|e| AppError::DpcAnalysis(format!("Error en tarea de análisis DPC: {e}")))?
+}
+
+#[tauri::command]
+pub fn calculate_tel(input_data: TelInputData) -> AppResult<TelReportResult> {
+    report::calculate_tel(&input_data)
 }

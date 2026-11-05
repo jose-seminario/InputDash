@@ -72,6 +72,15 @@ pub enum AppError {
 
     #[error("Error en análisis de red: {0}")]
     NetworkAnalysis(String),
+
+    #[error("{0}")]
+    FrametimeAnalysis(String),
+
+    #[error("{0}")]
+    DpcAnalysis(String),
+
+    #[error("Error en reporte TEL: {0}")]
+    TelReport(String),
 }
 
 #[derive(Serialize)]
@@ -101,6 +110,9 @@ impl AppError {
             Self::HardwareDiag(_) => "HARDWARE_DIAG_ERROR",
             Self::PollingAnalysis(_) => "POLLING_ANALYSIS_ERROR",
             Self::NetworkAnalysis(_) => "NETWORK_ANALYSIS_ERROR",
+            Self::FrametimeAnalysis(_) => "FRAMETIME_ANALYSIS_ERROR",
+            Self::DpcAnalysis(_) => "DPC_ANALYSIS_ERROR",
+            Self::TelReport(_) => "TEL_REPORT_ERROR",
         }
     }
 }
