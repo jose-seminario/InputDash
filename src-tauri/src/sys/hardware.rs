@@ -1,6 +1,8 @@
 use core::ffi::c_void;
 use core::ptr;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use serde::{Deserialize, Serialize};
 use windows::core::GUID;
 use windows::Win32::Foundation::{LUID, POINTL, RECTL};
@@ -800,6 +802,63 @@ pub fn get_hardware_diagnostic_info() -> HardwareDiagnosticInfo {
         mice,
         keyboards,
     }
+}
+
+// -----------------------------------------------------------------------------
+/// Calcula un hash liviano (en < 0.05ms) del conjunto de dispositivos Raw Input (ratones/teclados).
+/// Si un dispositivo se desconecta, se conecta o se cambia de puerto USB, este hash cambia.
+pub fn get_hid_topology_signature() -> u64 {
+    let mut num_devices: u32 = 0;
+    let cb_size = std::mem::size_of::<RAWINPUTDEVICELIST>() as u32;
+
+    unsafe {
+        GetRawInputDeviceList(ptr::null_mut(), &mut num_devices, cb_size);
+    }
+
+    if num_devices == 0 {
+        return 0;
+    }
+
+    let mut raw_list = vec![RAWINPUTDEVICELIST::default(); num_devices as usize];
+    let count = unsafe {
+        GetRawInputDeviceList(raw_list.as_mut_ptr(), &mut num_devices, cb_size)
+    };
+
+    if count == u32::MAX {
+        return 0;
+    }
+
+    let mut hasher = DefaultHasher::new();
+    count.hash(&mut hasher);
+
+    for dev in raw_list.iter().take(count as usize) {
+        if dev.hDevice.is_null() {
+            continue;
+        }
+        dev.dwType.hash(&mut hasher);
+
+        let mut name_len: u32 = 0;
+        unsafe {
+            GetRawInputDeviceInfoW(dev.hDevice, RIDI_DEVICENAME, ptr::null_mut(), &mut name_len);
+        }
+
+        if name_len > 0 {
+            let mut name_buf = vec![0u16; name_len as usize];
+            let read_len = unsafe {
+                GetRawInputDeviceInfoW(
+                    dev.hDevice,
+                    RIDI_DEVICENAME,
+                    name_buf.as_mut_ptr() as *mut c_void,
+                    &mut name_len,
+                )
+            };
+            if read_len != u32::MAX {
+                name_buf.hash(&mut hasher);
+            }
+        }
+    }
+
+    hasher.finish()
 }
 
 // -----------------------------------------------------------------------------

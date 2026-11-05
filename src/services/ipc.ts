@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type {
   AbSession,
   BackupSnapshot,
@@ -258,5 +259,13 @@ export async function ipcExportFullReport(
   payload: FullExportPayload
 ): Promise<ExportResult> {
   return invoke<ExportResult>("export_full_report", { payload });
+}
+
+export async function listenToUsbDeviceChanges(
+  callback: (msg: string) => void
+): Promise<() => void> {
+  return listen<string>("usb-device-changed", (event) => {
+    callback(event.payload);
+  });
 }
 

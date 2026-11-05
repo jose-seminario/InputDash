@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use tauri::{AppHandle, Emitter};
 
 use crate::profiles::games::{GameProfile, ProfileRuntimeState};
 use crate::sys::process::{
@@ -16,6 +17,8 @@ struct ProfileManagerState {
     active_pid: Option<u32>,
     timer_guard: Option<TimerResolutionGuard>,
     cpu_topology: CpuTopologyInfo,
+    last_hid_hash: u64,
+    app_handle: Option<AppHandle>,
 }
 
 pub struct ProfileManager {
@@ -33,6 +36,8 @@ impl ProfileManager {
             active_pid: None,
             timer_guard: None,
             cpu_topology: topology,
+            last_hid_hash: 0,
+            app_handle: None,
         };
 
         let state = Arc::new(Mutex::new(initial_state));
@@ -60,6 +65,12 @@ impl ProfileManager {
         }
     }
 
+    pub fn set_app_handle(&self, handle: AppHandle) {
+        if let Ok(mut guard) = self.state.lock() {
+            guard.app_handle = Some(handle);
+        }
+    }
+
     fn poll_tick(state_arc: &Arc<Mutex<ProfileManagerState>>) {
         let running_processes = get_running_processes();
 
@@ -67,6 +78,27 @@ impl ProfileManager {
             Ok(g) => g,
             Err(_) => return,
         };
+
+        // 0. Detección de Hot-Plug USB / periféricos HID
+        let current_hid_hash = crate::sys::hardware::get_hid_topology_signature();
+        let should_emit = if guard.last_hid_hash != 0 && guard.last_hid_hash != current_hid_hash {
+            guard.last_hid_hash = current_hid_hash;
+            true
+        } else {
+            if guard.last_hid_hash == 0 {
+                guard.last_hid_hash = current_hid_hash;
+            }
+            false
+        };
+
+        if should_emit {
+            if let Some(app) = &guard.app_handle {
+                let _ = app.emit(
+                    "usb-device-changed",
+                    "Cambio de periférico detectado. Por favor, vuelve a medir el polling",
+                );
+            }
+        }
 
         let mut newly_detected: Option<(String, u32, String)> = None;
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useDiagStore } from "../store/useDiagStore";
 import { useTweaksStore } from "../store/useTweaksStore";
-import { ipcStartBufferbloatAnalysis, ipcExportFullReport } from "../services/ipc";
+import { ipcStartBufferbloatAnalysis, ipcExportFullReport, listenToUsbDeviceChanges } from "../services/ipc";
 import type { BufferbloatResult, FullExportPayload } from "../types/tweak";
 
 export function DashboardView() {
@@ -34,6 +34,8 @@ export function DashboardView() {
     dpcError,
     telError,
     fetchAllDiagnostics,
+    fetchHardwareInfo,
+    fetchUsbTopology,
     startPollingAnalysis,
     startNetworkAnalysis,
     startFrametimeAnalysis,
@@ -54,6 +56,40 @@ export function DashboardView() {
   const [bufferbloatError, setBufferbloatError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportSuccessMsg, setExportSuccessMsg] = useState<string | null>(null);
+  const [usbChangeAlert, setUsbChangeAlert] = useState<string | null>(null);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listenToUsbDeviceChanges((msg) => {
+      setUsbChangeAlert(msg || "Cambio de periférico detectado. Por favor, vuelve a medir el polling.");
+      void fetchUsbTopology();
+      void fetchHardwareInfo();
+    })
+      .then((unsub) => {
+        unlisten = unsub;
+      })
+      .catch((err) => {
+        console.warn("No se pudo registrar listener de hot-plug USB:", err);
+      });
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [fetchUsbTopology, fetchHardwareInfo]);
+
+  const isLowPolling = Boolean(pollingResult && pollingResult.measured_hz <= 250);
+  const activeUsbMouse = hardware?.mice.find(
+    (m) =>
+      m.transport === "USB" ||
+      m.name.toLowerCase().includes("gaming") ||
+      m.name.toLowerCase().includes("mouse") ||
+      m.name.toLowerCase().includes("ratón")
+  );
+  const hasSharedHubOrContention = Boolean(
+    usbTopology?.controllers.some((c) => c.devices.length > 1 && c.devices.some((d) => d.is_mouse)) ||
+      usbTopology?.any_contention_detected
+  );
+  const showPortBottleneckAlert = isLowPolling && Boolean(activeUsbMouse);
 
   const handleStartBufferbloat = async () => {
     setIsBufferbloatAnalyzing(true);
@@ -373,7 +409,36 @@ export function DashboardView() {
               Compartir bus entre mouse y audio USB (transferencias isócronas continuas) provoca micro-cortes e inestabilidad en el sondeo.
             </p>
           </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-small"
+            disabled={isUsbLoading}
+            onClick={() => {
+              void fetchUsbTopology();
+              void fetchHardwareInfo();
+            }}
+          >
+            {isUsbLoading ? "Escaneando..." : "Re-escanear USB"}
+          </button>
         </div>
+
+        {usbChangeAlert && (
+          <div className="banner banner-warn" role="alert" style={{ marginTop: "10px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", gap: "10px" }}>
+              <span>🔌 <strong>{usbChangeAlert}</strong> (Topología USB actualizada automáticamente).</span>
+              <button
+                type="button"
+                className="btn btn-small btn-primary"
+                onClick={() => {
+                  setUsbChangeAlert(null);
+                  void startPollingAnalysis();
+                }}
+              >
+                Medir Polling Ahora
+              </button>
+            </div>
+          </div>
+        )}
 
         {usbTopology?.any_contention_detected && (
           <div className="banner banner-error" role="alert" style={{ marginTop: "10px" }}>
@@ -520,6 +585,20 @@ export function DashboardView() {
 
             <div className="verdict-footer">
               <div className="verdict-explanation">
+                {showPortBottleneckAlert && (
+                  <div className="banner banner-warn" role="alert" style={{ margin: "0 0 12px 0", textAlign: "left" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                      <strong style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span>⚠️</span> Limitación Física de Puerto USB Detectada ({pollingResult.measured_hz} Hz)
+                      </strong>
+                      <span>
+                        Tu mouse <strong>{activeUsbMouse?.name || "USB"}</strong> soporta 1000Hz, pero el puerto actual parece limitado ({pollingResult.measured_hz} Hz)
+                        {hasSharedHubOrContention ? " o comparte bus en el concentrador USB" : ""}.
+                        Considera conectarlo directamente a un puerto USB 3.0 trasero (directo al chipset/CPU) o usar una tarjeta PCIe USB.
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <p>
                   <strong>Evaluación Técnica: </strong>
                   {pollingResult.status === "optimo" &&

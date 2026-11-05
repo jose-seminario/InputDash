@@ -7,6 +7,7 @@ pub mod error;
 pub mod profiles;
 pub mod sys;
 
+use tauri::Manager;
 use crate::ab::blind::BlindSessionManager;
 use crate::ab::session::AbSessionManager;
 use crate::core::catalog::Catalog;
@@ -42,6 +43,12 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(app_state)
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let state = app.state::<AppState>();
+            state.profile_manager.set_app_handle(handle);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::list_tweaks,
             commands::apply_tweak,
