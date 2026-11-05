@@ -105,7 +105,14 @@ pub fn run_bufferbloat_test(probe_host_opt: Option<&str>) -> AppResult<Bufferblo
     // -------------------------------------------------------------------------
     // FASE B: Medición Bajo Carga (Saturación de Ancho de Banda)
     // -------------------------------------------------------------------------
+    struct SaturationStopGuard(Arc<AtomicBool>);
+    impl Drop for SaturationStopGuard {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
     let stop_signal = Arc::new(AtomicBool::new(false));
+    let _stop_guard = SaturationStopGuard(Arc::clone(&stop_signal));
     let mut workers = Vec::new();
 
     // Servidores de descarga para saturación

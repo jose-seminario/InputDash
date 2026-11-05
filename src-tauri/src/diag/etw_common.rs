@@ -1,6 +1,6 @@
 use core::ffi::c_void;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
 use windows::core::GUID;
 
 pub const INVALID_PROCESSTRACE_HANDLE: u64 = !0u64;
@@ -322,68 +322,80 @@ pub fn stop_stale_session(session_name: &str) {
     }
 }
 
-/// RAII Guard ensuring ETW trace sessions and consumer handles are always stopped and cleaned up.
+/// RAII Guard ensuring ETW trace sessions, consumer handles, and worker threads
+/// are always stopped, closed, and joined cleanly — even if a panic unwind occurs.
 pub struct EtwSessionGuard {
-    pub session_handle: u64,
-    pub session_name_wide: Vec<u16>,
-    pub consumer_handle: u64,
-    pub is_stopped: AtomicBool,
+    session_handle: u64,
+    session_name_wide: Vec<u16>,
+    consumer_handle: u64,
+    worker_thread: Option<JoinHandle<()>>,
+    is_stopped: bool,
 }
 
 impl EtwSessionGuard {
-    pub fn new(session_handle: u64, session_name: &str, consumer_handle: u64) -> Self {
+    pub fn new(session_handle: u64, session_name: &str) -> Self {
         let wide: Vec<u16> =
             session_name.encode_utf16().chain(std::iter::once(0)).collect();
         Self {
             session_handle,
             session_name_wide: wide,
-            consumer_handle,
-            is_stopped: AtomicBool::new(false),
+            consumer_handle: 0,
+            worker_thread: None,
+            is_stopped: false,
         }
     }
 
-    pub fn stop(&self) {
-        if self.is_stopped.swap(true, Ordering::SeqCst) {
-            return;
-        }
+    pub fn attach_consumer(&mut self, consumer_handle: u64, worker_thread: JoinHandle<()>) {
+        self.consumer_handle = consumer_handle;
+        self.worker_thread = Some(worker_thread);
+    }
 
-        // 1. Close consumer trace handle
-        if self.consumer_handle != 0 && self.consumer_handle != INVALID_PROCESSTRACE_HANDLE {
-            unsafe {
-                let _ = CloseTrace(self.consumer_handle);
+    pub fn stop_and_join(&mut self) {
+        if !self.is_stopped {
+            self.is_stopped = true;
+
+            // 1. Close consumer trace handle so ProcessTrace unblocks
+            if self.consumer_handle != 0 && self.consumer_handle != INVALID_PROCESSTRACE_HANDLE {
+                unsafe {
+                    let _ = CloseTrace(self.consumer_handle);
+                }
             }
-        }
 
-        // 2. Stop ETW session via handle
-        let mut stop_buf = vec![0u8; ETW_PROPS_BUFFER_SIZE];
-        let p_props = stop_buf.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES;
-        unsafe {
-            (*p_props).Wnode.BufferSize = ETW_PROPS_BUFFER_SIZE as u32;
-            (*p_props).Wnode.Flags = WNODE_FLAG_TRACED_GUID;
-            (*p_props).LoggerNameOffset = std::mem::size_of::<EVENT_TRACE_PROPERTIES>() as u32;
+            // 2. Stop ETW session via handle + fallback by session name
+            let mut stop_buf = vec![0u8; ETW_PROPS_BUFFER_SIZE];
+            let p_props = stop_buf.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES;
+            unsafe {
+                (*p_props).Wnode.BufferSize = ETW_PROPS_BUFFER_SIZE as u32;
+                (*p_props).Wnode.Flags = WNODE_FLAG_TRACED_GUID;
+                (*p_props).LoggerNameOffset = std::mem::size_of::<EVENT_TRACE_PROPERTIES>() as u32;
 
-            if self.session_handle != 0 {
+                if self.session_handle != 0 {
+                    let _ = ControlTraceW(
+                        self.session_handle,
+                        self.session_name_wide.as_ptr(),
+                        p_props,
+                        EVENT_TRACE_CONTROL_STOP,
+                    );
+                }
+
                 let _ = ControlTraceW(
-                    self.session_handle,
+                    0,
                     self.session_name_wide.as_ptr(),
                     p_props,
                     EVENT_TRACE_CONTROL_STOP,
                 );
             }
+        }
 
-            // 3. Fallback stop by session name
-            let _ = ControlTraceW(
-                0,
-                self.session_name_wide.as_ptr(),
-                p_props,
-                EVENT_TRACE_CONTROL_STOP,
-            );
+        // 3. Join worker thread BEFORE returning so EventRecordCallback can never touch freed memory
+        if let Some(worker) = self.worker_thread.take() {
+            let _ = worker.join();
         }
     }
 }
 
 impl Drop for EtwSessionGuard {
     fn drop(&mut self) {
-        self.stop();
+        self.stop_and_join();
     }
 }

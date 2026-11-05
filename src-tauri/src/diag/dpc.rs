@@ -1,7 +1,6 @@
 use core::ffi::c_void;
 use std::collections::HashMap;
 use std::ptr;
-use std::sync::Arc;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
@@ -146,6 +145,14 @@ pub fn run_dpc_analysis() -> AppResult<DpcAnalysisResult> {
 
     let drivers = load_driver_map();
 
+    // Declare collector BEFORE guard so reverse drop order joins ProcessTrace BEFORE freeing collector
+    let mut collector = Box::new(DpcCollector {
+        qpc_freq,
+        drivers,
+        accum: HashMap::new(),
+        total_events: 0,
+    });
+
     let kernel_name_wide: Vec<u16> = KERNEL_LOGGER_NAME
         .encode_utf16()
         .chain(std::iter::once(0))
@@ -175,50 +182,37 @@ pub fn run_dpc_analysis() -> AppResult<DpcAnalysisResult> {
         )));
     }
 
-    let mut collector = DpcCollector {
-        qpc_freq,
-        drivers,
-        accum: HashMap::new(),
-        total_events: 0,
-    };
+    // 2. Register RAII guard immediately after StartTraceW succeeds (no Arc cycle)
+    let mut guard = EtwSessionGuard::new(session_handle, KERNEL_LOGGER_NAME);
 
     let mut logfile = unsafe { std::mem::zeroed::<EVENT_TRACE_LOGFILEW>() };
     let mut logfile_name_wide = kernel_name_wide.clone();
     logfile.LoggerName = logfile_name_wide.as_mut_ptr();
     logfile.ProcessTraceMode = PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
     logfile.EventRecordCallback = Some(dpc_event_callback);
-    logfile.Context = &mut collector as *mut _ as *mut c_void;
+    logfile.Context = (&mut *collector) as *mut DpcCollector as *mut c_void;
 
     let consumer_handle = unsafe { OpenTraceW(&mut logfile) };
     if consumer_handle == INVALID_PROCESSTRACE_HANDLE {
-        stop_stale_session(KERNEL_LOGGER_NAME);
         return Err(AppError::DpcAnalysis(
             "Fallo al abrir el consumidor ETW de kernel para análisis DPC/ISR.".to_string(),
         ));
     }
 
-    // 2. Wrap in RAII guard
-    let guard = Arc::new(EtwSessionGuard::new(
-        session_handle,
-        KERNEL_LOGGER_NAME,
-        consumer_handle,
-    ));
-
-    // 3. Worker thread
-    let worker_guard = Arc::clone(&guard);
+    // 3. Worker thread using Copy handle (no Arc to guard)
     let worker_thread = std::thread::spawn(move || {
-        let handle = worker_guard.consumer_handle;
+        let handle = consumer_handle;
         unsafe {
             let _ = ProcessTrace(&handle, 1, ptr::null(), ptr::null());
         }
     });
+    guard.attach_consumer(consumer_handle, worker_thread);
 
     // 4. Strict 10-second capture window
     std::thread::sleep(Duration::from_secs(10));
 
-    // 5. Stop session & wait for worker
-    guard.stop();
-    let _ = worker_thread.join();
+    // 5. Stop session & wait for worker before reading collector
+    guard.stop_and_join();
 
     if collector.accum.is_empty() {
         return Err(AppError::DpcAnalysis(
@@ -226,9 +220,11 @@ pub fn run_dpc_analysis() -> AppResult<DpcAnalysisResult> {
         ));
     }
 
+    let total_events = collector.total_events;
+    let accum = std::mem::take(&mut collector.accum);
+
     // 6. Aggregate top drivers
-    let mut driver_list: Vec<DriverDpcInfo> = collector
-        .accum
+    let mut driver_list: Vec<DriverDpcInfo> = accum
         .into_iter()
         .map(|(name, acc)| {
             let avg = if acc.count > 0 {
@@ -285,7 +281,7 @@ pub fn run_dpc_analysis() -> AppResult<DpcAnalysisResult> {
 
     Ok(DpcAnalysisResult {
         duration_seconds: 10.0,
-        total_events: collector.total_events,
+        total_events,
         highest_dpc_us,
         top_drivers,
         status,

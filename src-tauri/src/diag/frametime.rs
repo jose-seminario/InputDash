@@ -1,7 +1,6 @@
 use core::ffi::c_void;
 use std::collections::HashMap;
 use std::ptr;
-use std::sync::Arc;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use windows::core::GUID;
@@ -78,6 +77,11 @@ pub fn run_frametime_analysis() -> AppResult<FrametimeAnalysisResult> {
         qpc_freq = 10_000_000;
     }
 
+    // Declare collector BEFORE guard so reverse drop order joins ProcessTrace BEFORE freeing collector
+    let mut collector = Box::new(FrametimeCollector {
+        presents: HashMap::new(),
+    });
+
     let session_name_wide: Vec<u16> = FRAMETIME_SESSION_NAME
         .encode_utf16()
         .chain(std::iter::once(0))
@@ -100,7 +104,10 @@ pub fn run_frametime_analysis() -> AppResult<FrametimeAnalysisResult> {
         )));
     }
 
-    // 2. Enable Providers: DxgKrnl and DXGI
+    // 2. Register RAII guard immediately after StartTraceW succeeds (no Arc cycle)
+    let mut guard = EtwSessionGuard::new(session_handle, FRAMETIME_SESSION_NAME);
+
+    // 3. Enable Providers: DxgKrnl and DXGI
     unsafe {
         let _ = EnableTraceEx2(
             session_handle,
@@ -125,47 +132,34 @@ pub fn run_frametime_analysis() -> AppResult<FrametimeAnalysisResult> {
         );
     }
 
-    let mut collector = FrametimeCollector {
-        presents: HashMap::new(),
-    };
-
     let mut logfile = unsafe { std::mem::zeroed::<EVENT_TRACE_LOGFILEW>() };
     let mut logfile_name_wide = session_name_wide.clone();
     logfile.LoggerName = logfile_name_wide.as_mut_ptr();
     logfile.ProcessTraceMode = PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
     logfile.EventRecordCallback = Some(frametime_event_callback);
-    logfile.Context = &mut collector as *mut _ as *mut c_void;
+    logfile.Context = (&mut *collector) as *mut FrametimeCollector as *mut c_void;
 
     let consumer_handle = unsafe { OpenTraceW(&mut logfile) };
     if consumer_handle == INVALID_PROCESSTRACE_HANDLE {
-        stop_stale_session(FRAMETIME_SESSION_NAME);
         return Err(AppError::FrametimeAnalysis(
             "Fallo al abrir el consumidor ETW para análisis de frame time.".to_string(),
         ));
     }
 
-    // 3. Register RAII guard
-    let guard = Arc::new(EtwSessionGuard::new(
-        session_handle,
-        FRAMETIME_SESSION_NAME,
-        consumer_handle,
-    ));
-
-    // 4. Spawn worker thread to pump ProcessTrace
-    let worker_guard = Arc::clone(&guard);
+    // 4. Spawn worker thread to pump ProcessTrace using Copy handle (no Arc to guard)
     let worker_thread = std::thread::spawn(move || {
-        let handle = worker_guard.consumer_handle;
+        let handle = consumer_handle;
         unsafe {
             let _ = ProcessTrace(&handle, 1, ptr::null(), ptr::null());
         }
     });
+    guard.attach_consumer(consumer_handle, worker_thread);
 
     // 5. Strict 10-second capture window
     std::thread::sleep(Duration::from_secs(10));
 
-    // 6. Stop session & wait for worker
-    guard.stop();
-    let _ = worker_thread.join();
+    // 6. Stop session & wait for worker before reading collector
+    guard.stop_and_join();
 
     // 7. Process timestamps
     let best_pid_entry = collector

@@ -240,6 +240,11 @@ impl ProfileManager {
 
 impl Drop for ProfileManager {
     fn drop(&mut self) {
-        self.stop_signal.store(true, Ordering::Relaxed);
+        self.stop_signal.store(true, Ordering::SeqCst);
+        if let Ok(mut guard) = self.state.lock() {
+            guard.timer_guard = None;
+            guard.active_profile_id = None;
+            guard.active_pid = None;
+        }
     }
 }

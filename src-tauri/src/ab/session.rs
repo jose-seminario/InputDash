@@ -137,6 +137,11 @@ impl AbSessionManager {
         let mut guard = self.current_session.lock().map_err(|_| {
             AppError::RequiresAbTest("Mutex de sesión A/B envenenado.".to_string())
         })?;
+        if let Some(prev) = guard.as_ref() {
+            if prev.session_token != session.session_token {
+                engine.invalidate_session_token(&prev.session_token);
+            }
+        }
         *guard = Some(session.clone());
 
         Ok(session)
