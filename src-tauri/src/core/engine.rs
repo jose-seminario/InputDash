@@ -161,26 +161,38 @@ impl Engine {
                 dato,
                 tipo_dato,
             } => {
-                // Etapa 5/7: adaptadores TCP dinámicos por GUID
-                if ruta.contains("{ADAPTER_GUID}") {
-                    return TweakStatusView {
-                        definition: tweak.clone(),
-                        target_summary,
-                        expected_value_display,
-                        current_os_value: "Por interfaz de red TCP (Etapa 5/7)".to_string(),
-                        is_applied: false,
-                        has_backup: backup_info.is_some(),
-                        backup_original_value: backup_info
-                            .map(|b| b.payload.display_previous()),
-                        status_error: None,
-                    };
-                }
+                let effective_ruta = if ruta.contains("{ADAPTER_GUID}") {
+                    let from_backup = backup_info.as_ref().and_then(|b| match &b.payload {
+                        BackupPayload::Registry { subkey, .. } => Some(subkey.clone()),
+                        _ => None,
+                    });
+                    match from_backup.or_else(|| resolve_registry_subkey(ruta).ok()) {
+                        Some(resolved) => resolved,
+                        None => {
+                            return TweakStatusView {
+                                definition: tweak.clone(),
+                                target_summary,
+                                expected_value_display,
+                                current_os_value: "Sin adaptador de red activo".to_string(),
+                                is_applied: false,
+                                has_backup: backup_info.is_some(),
+                                backup_original_value: backup_info
+                                    .map(|b| b.payload.display_previous()),
+                                status_error: None,
+                            };
+                        }
+                    }
+                } else {
+                    ruta.clone()
+                };
 
                 match tweak.parse_registry_target(*hive, *tipo_dato, dato) {
                     Ok((_, expected_data)) => match guard::validate_registry_location(
-                        *hive, ruta, valor,
+                        *hive,
+                        &effective_ruta,
+                        valor,
                     )
-                    .and_then(|()| registry::read_value(*hive, ruta, valor))
+                    .and_then(|()| registry::read_value(*hive, &effective_ruta, valor))
                     {
                         Ok(os_state) => {
                             let is_applied = os_state == RegistryState::Present(expected_data);
@@ -447,8 +459,11 @@ impl Engine {
         dato: &serde_json::Value,
         tipo_dato: crate::sys::registry::RegistryValueKind,
     ) -> AppResult<MutationOutcome> {
+        let resolved_subkey = resolve_registry_subkey(subkey)?;
+        guard::validate_registry_location(hive, &resolved_subkey, value_name)?;
+
         let (_, target_data) = tweak.parse_registry_target(hive, tipo_dato, dato)?;
-        let current_state = registry::read_value(hive, subkey, value_name)?;
+        let current_state = registry::read_value(hive, &resolved_subkey, value_name)?;
         let current_human = current_state.display_human();
 
         let backups_dir = self.db.backups_dir();
@@ -458,7 +473,7 @@ impl Engine {
             &tweak.nombre,
             BackupPayload::Registry {
                 hive,
-                subkey: subkey.to_string(),
+                subkey: resolved_subkey.clone(),
                 value_name: value_name.to_string(),
                 previous_state: current_state.clone(),
             },
@@ -468,9 +483,9 @@ impl Engine {
             self.trigger_session_restore_point(tweak, &current_human);
 
         let expected_state = RegistryState::Present(target_data.clone());
-        let apply_and_verify = registry::write_value(hive, subkey, value_name, &target_data)
-            .and_then(|()| {
-                let reread = registry::read_value(hive, subkey, value_name)?;
+        let apply_and_verify =
+            registry::write_value(hive, &resolved_subkey, value_name, &target_data).and_then(|()| {
+                let reread = registry::read_value(hive, &resolved_subkey, value_name)?;
                 if reread != expected_state {
                     Err(AppError::VerificationMismatch {
                         tweak_id: tweak.id.clone(),
@@ -582,8 +597,21 @@ impl Engine {
 
         let apply_res = power::activate_or_duplicate_plan(target_guid)?;
 
-        // Verify post-activación releyendo desde PowrProf
-        let reread_plan = power::get_active_plan()?;
+        // Verify post-activación releyendo desde PowrProf (si falla la relectura o difiere el GUID,
+        // ejecutamos restore_plan hacia el GUID original antes de devolver el error de verificación)
+        let reread_plan = match power::get_active_plan() {
+            Ok(plan) => plan,
+            Err(read_err) => {
+                let _ =
+                    power::restore_plan(&current_plan.guid, apply_res.duplicated_guid.as_deref());
+                return Err(AppError::VerificationMismatch {
+                    tweak_id: tweak.id.clone(),
+                    expected: apply_res.active_plan.guid,
+                    actual: format!("Error al releer plan activo ({read_err})"),
+                });
+            }
+        };
+
         if !reread_plan
             .guid
             .eq_ignore_ascii_case(&apply_res.active_plan.guid)
@@ -988,6 +1016,28 @@ impl Engine {
 
         Ok(results)
     }
+}
+
+fn resolve_registry_subkey(subkey: &str) -> AppResult<String> {
+    if !subkey.contains("{ADAPTER_GUID}") {
+        return Ok(subkey.to_string());
+    }
+
+    let raw_guid = crate::sys::drivers::get_active_nic_instance_guid().ok_or_else(|| {
+        AppError::NetworkAnalysis(
+            "No se encontró un adaptador de red activo para aplicar el tweak TCP".to_string(),
+        )
+    })?;
+
+    let clean = raw_guid.trim().trim_matches(|c| c == '{' || c == '}');
+    if clean.is_empty() {
+        return Err(AppError::NetworkAnalysis(
+            "No se encontró un adaptador de red activo para aplicar el tweak TCP".to_string(),
+        ));
+    }
+
+    let formatted_guid = format!("{{{clean}}}");
+    Ok(subkey.replace("{ADAPTER_GUID}", &formatted_guid))
 }
 
 fn restore_from_snapshot(snapshot: &BackupSnapshot) -> AppResult<()> {

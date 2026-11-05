@@ -193,7 +193,7 @@ fn find_active_nic_details() -> (String, String, String) {
     })
 }
 
-fn get_active_nic_instance_guid() -> Option<String> {
+pub fn get_active_nic_instance_guid() -> Option<String> {
     // 0x08080808 = 8.8.8.8
     let mut if_idx = 0u32;
     let res = unsafe { GetBestInterface(0x08080808, &mut if_idx) };

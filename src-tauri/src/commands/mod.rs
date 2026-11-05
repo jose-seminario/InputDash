@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::ab::blind::{BlindPublicState, BlindResult, BlindSessionManager};
 use crate::ab::session::{AbSession, AbSessionManager};
@@ -96,9 +96,24 @@ pub fn simulate_preset(
 }
 
 #[tauri::command]
-pub fn create_restore_point(state: State<'_, AppState>) -> AppResult<String> {
-    let engine = require_engine(&state)?;
-    engine.create_manual_restore_point()
+pub async fn create_restore_point(app: AppHandle) -> AppResult<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let engine = match &state.engine {
+            Ok(eng) => eng,
+            Err(init_err) => {
+                return Err(AppError::Database(format!(
+                    "Error de inicialización del motor: {init_err}"
+                )));
+            }
+        };
+        engine.create_manual_restore_point()
+    })
+    .await
+    .map_err(|e| AppError::RestorePoint {
+        code: 0xFFFF_FFFF,
+        detail: format!("Error en tarea asíncrona de punto de restauración: {e}"),
+    })?
 }
 
 #[tauri::command]
