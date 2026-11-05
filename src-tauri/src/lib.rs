@@ -6,6 +6,7 @@ pub mod diag;
 pub mod error;
 pub mod sys;
 
+use crate::ab::blind::BlindSessionManager;
 use crate::ab::session::AbSessionManager;
 use crate::core::catalog::Catalog;
 use crate::core::engine::Engine;
@@ -14,6 +15,7 @@ use crate::db::Database;
 pub struct AppState {
     pub engine: Result<Engine, String>,
     pub ab_manager: AbSessionManager,
+    pub blind_manager: BlindSessionManager,
 }
 
 impl AppState {
@@ -25,6 +27,7 @@ impl AppState {
         Self {
             engine: init_res,
             ab_manager: AbSessionManager::new(),
+            blind_manager: BlindSessionManager::new(),
         }
     }
 }
@@ -60,6 +63,14 @@ pub fn run() {
             commands::get_ab_session,
             commands::reset_ab_session,
             commands::capture_ab_synthetic_samples,
+            commands::start_blind_test,
+            commands::get_blind_state,
+            commands::record_blind_spawn,
+            commands::record_blind_click,
+            commands::advance_blind_phase,
+            commands::complete_blind_test,
+            commands::cancel_blind_test,
+            commands::evaluate_external_ldat,
         ])
         .run(tauri::generate_context!())
         .expect("error fatal al iniciar la ventana de Tauri");

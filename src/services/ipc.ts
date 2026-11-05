@@ -2,9 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AbSession,
   BackupSnapshot,
+  BlindPublicState,
+  BlindResult,
   ChangeLogEntry,
   DpcAnalysisResult,
   DriversInfo,
+  ExternalLdatInput,
+  ExternalLdatResult,
   FrametimeAnalysisResult,
   HardwareDiagnosticInfo,
   MutationOutcome,
@@ -152,4 +156,47 @@ export async function ipcResetAbSession(): Promise<void> {
 
 export async function ipcCaptureAbSyntheticSamples(count?: number): Promise<number[]> {
   return invoke<number[]>("capture_ab_synthetic_samples", { count });
+}
+
+// ---------------------------------------------------------------------------
+// Double-Blind (Test Ciego) & LDAT IPC (Etapa 5)
+// ---------------------------------------------------------------------------
+
+export async function ipcStartBlindTest(
+  tweakId: string,
+  tweakName: string
+): Promise<BlindPublicState> {
+  return invoke<BlindPublicState>("start_blind_test", { tweakId, tweakName });
+}
+
+export async function ipcGetBlindState(): Promise<BlindPublicState> {
+  return invoke<BlindPublicState>("get_blind_state");
+}
+
+export async function ipcRecordBlindSpawn(): Promise<number> {
+  return invoke<number>("record_blind_spawn");
+}
+
+export async function ipcRecordBlindClick(
+  reactionMs?: number
+): Promise<[number, number, boolean]> {
+  return invoke<[number, number, boolean]>("record_blind_click", { reactionMs });
+}
+
+export async function ipcAdvanceBlindPhase(): Promise<BlindPublicState> {
+  return invoke<BlindPublicState>("advance_blind_phase");
+}
+
+export async function ipcCompleteBlindTest(): Promise<BlindResult> {
+  return invoke<BlindResult>("complete_blind_test");
+}
+
+export async function ipcCancelBlindTest(): Promise<void> {
+  return invoke<void>("cancel_blind_test");
+}
+
+export async function ipcEvaluateExternalLdat(
+  input: ExternalLdatInput
+): Promise<ExternalLdatResult> {
+  return invoke<ExternalLdatResult>("evaluate_external_ldat", { input });
 }

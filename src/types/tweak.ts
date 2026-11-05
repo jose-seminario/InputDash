@@ -358,6 +358,7 @@ export interface AbSession {
   id: string;
   tweak_id: string;
   tweak_name: string;
+  session_token?: string;
   metric: string;
   state: AbSessionState;
   baseline_samples: number[];
@@ -371,4 +372,58 @@ export interface AbSession {
   explanation?: string | null;
   proposed_action?: string | null;
   can_rollback: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Double-Blind & External LDAT Types (Etapa 5)
+// ---------------------------------------------------------------------------
+
+export type BlindPhase = "idle" | "statea" | "stateb" | "completed" | "cancelled";
+
+export interface BlindResult {
+  tweak_active_in: string; // "A" | "B"
+  state_a_mean: number;
+  state_a_std: number;
+  state_b_mean: number;
+  state_b_std: number;
+  baseline_mean: number;
+  tweak_mean: number;
+  delta_pct: number;
+  t_stat: number;
+  degrees_of_freedom: number;
+  p_value: number;
+  is_significant: boolean;
+  verdict: "mejoro" | "placebo" | "empeoro";
+  verdict_label: string;
+  explanation: string;
+  proposed_action: string;
+}
+
+export interface BlindPublicState {
+  session_id: string;
+  tweak_id: string;
+  tweak_name: string;
+  phase: BlindPhase;
+  clicks_a_count: number;
+  clicks_b_count: number;
+  target_clicks: number;
+  last_click_ms: number | null;
+  result: BlindResult | null;
+}
+
+export interface ExternalLdatInput {
+  mean_a: number;
+  std_dev_a: number;
+  count_a?: number;
+  mean_b: number;
+  std_dev_b: number;
+  count_b?: number;
+}
+
+export interface ExternalLdatResult {
+  t_test: TTestResult;
+  delta_pct: number;
+  verdict: "mejoro" | "placebo" | "empeoro";
+  verdict_label: string;
+  explanation: string;
 }

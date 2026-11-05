@@ -24,6 +24,25 @@ pub struct TTestResult {
     pub is_significant: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalLdatInput {
+    pub mean_a: f64,
+    pub std_dev_a: f64,
+    pub count_a: Option<usize>,
+    pub mean_b: f64,
+    pub std_dev_b: f64,
+    pub count_b: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalLdatResult {
+    pub t_test: TTestResult,
+    pub delta_pct: f64,
+    pub verdict: String, // "mejoro" | "placebo" | "empeoro"
+    pub verdict_label: String,
+    pub explanation: String,
+}
+
 /// Computes the arithmetic mean of a slice.
 pub fn mean(values: &[f64]) -> Option<f64> {
     if values.is_empty() {
@@ -142,20 +161,37 @@ pub fn compute_summary(values: &[f64]) -> Option<SampleSummary> {
 /// Welch's two-sample t-test for unequal variances and sample sizes.
 /// Returns t-statistic, degrees of freedom, two-tailed p-value and significance.
 pub fn welch_t_test(sample_a: &[f64], sample_b: &[f64]) -> Option<TTestResult> {
-    let n1 = sample_a.len() as f64;
-    let n2 = sample_b.len() as f64;
+    if sample_a.len() < 2 || sample_b.len() < 2 {
+        return None;
+    }
+    let m1 = mean(sample_a)?;
+    let m2 = mean(sample_b)?;
+    let s1 = std_dev(sample_a)?;
+    let s2 = std_dev(sample_b)?;
+    welch_t_test_from_stats(m1, s1, sample_a.len(), m2, s2, sample_b.len())
+}
 
-    if n1 < 2.0 || n2 < 2.0 {
+/// Computes Welch's t-test directly from summary statistics: mean, standard deviation, and sample count.
+pub fn welch_t_test_from_stats(
+    m1: f64,
+    s1: f64,
+    n1: usize,
+    m2: f64,
+    s2: f64,
+    n2: usize,
+) -> Option<TTestResult> {
+    let n1_f = n1 as f64;
+    let n2_f = n2 as f64;
+
+    if n1_f < 2.0 || n2_f < 2.0 {
         return None;
     }
 
-    let m1 = mean(sample_a)?;
-    let m2 = mean(sample_b)?;
-    let v1 = variance(sample_a)?;
-    let v2 = variance(sample_b)?;
+    let v1 = s1 * s1;
+    let v2 = s2 * s2;
 
-    let se1 = v1 / n1;
-    let se2 = v2 / n2;
+    let se1 = v1 / n1_f;
+    let se2 = v2 / n2_f;
     let se_sum = se1 + se2;
 
     if se_sum <= 1e-15 {
@@ -163,14 +199,14 @@ pub fn welch_t_test(sample_a: &[f64], sample_b: &[f64]) -> Option<TTestResult> {
         if (m1 - m2).abs() < 1e-12 {
             return Some(TTestResult {
                 t_stat: 0.0,
-                degrees_of_freedom: (n1 + n2 - 2.0).max(1.0),
+                degrees_of_freedom: (n1_f + n2_f - 2.0).max(1.0),
                 p_value: 1.0,
                 is_significant: false,
             });
         } else {
             return Some(TTestResult {
                 t_stat: if m1 > m2 { 100.0 } else { -100.0 },
-                degrees_of_freedom: (n1 + n2 - 2.0).max(1.0),
+                degrees_of_freedom: (n1_f + n2_f - 2.0).max(1.0),
                 p_value: 0.0,
                 is_significant: true,
             });
@@ -181,11 +217,11 @@ pub fn welch_t_test(sample_a: &[f64], sample_b: &[f64]) -> Option<TTestResult> {
 
     // Welch–Satterthwaite degrees of freedom
     let num_df = se_sum * se_sum;
-    let denom_df = (se1 * se1) / (n1 - 1.0) + (se2 * se2) / (n2 - 1.0);
+    let denom_df = (se1 * se1) / (n1_f - 1.0) + (se2 * se2) / (n2_f - 1.0);
     let df = if denom_df > 0.0 {
         (num_df / denom_df).max(1.0)
     } else {
-        (n1 + n2 - 2.0).max(1.0)
+        (n1_f + n2_f - 2.0).max(1.0)
     };
 
     let p_value = student_t_p_value(t_stat.abs(), df);

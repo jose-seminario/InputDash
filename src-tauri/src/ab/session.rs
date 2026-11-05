@@ -27,6 +27,7 @@ pub struct AbSession {
     pub id: String,
     pub tweak_id: String,
     pub tweak_name: String,
+    pub session_token: String,
     pub metric: String, // "frametime" | "dpc" | "tel" | "synthetic_jitter"
     pub state: AbSessionState,
     pub baseline_samples: Vec<f64>,
@@ -49,10 +50,12 @@ impl AbSession {
             tweak_id,
             chrono::Utc::now().timestamp_millis()
         );
+        let session_token = format!("tok_{}", id);
         Self {
             id,
             tweak_id,
             tweak_name,
+            session_token,
             metric,
             state: AbSessionState::Idle,
             baseline_samples: Vec::new(),
@@ -74,6 +77,12 @@ pub struct AbSessionManager {
     current_session: Mutex<Option<AbSession>>,
 }
 
+impl Default for AbSessionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AbSessionManager {
     pub fn new() -> Self {
         Self {
@@ -86,19 +95,25 @@ impl AbSessionManager {
         guard.clone()
     }
 
-    pub fn reset(&self) {
+    pub fn reset(&self, engine: Option<&Engine>) {
         if let Ok(mut guard) = self.current_session.lock() {
-            *guard = None;
+            if let Some(session) = guard.take() {
+                if let Some(eng) = engine {
+                    eng.invalidate_session_token(&session.session_token);
+                }
+            }
         }
     }
 
     /// Paso 1: Inicia o actualiza el estado Baseline con las muestras capturadas.
+    /// Registra el session_token en el motor para autorizar tweaks avanzados durante la prueba.
     pub fn record_baseline(
         &self,
         tweak_id: &str,
         tweak_name: &str,
         metric: &str,
         samples: Vec<f64>,
+        engine: &Engine,
     ) -> AppResult<AbSession> {
         if samples.len() < 5 {
             return Err(AppError::RequiresAbTest(
@@ -115,6 +130,9 @@ impl AbSessionManager {
         session.baseline_samples = samples;
         session.baseline_summary = Some(summary);
         session.state = AbSessionState::BaselineReady;
+
+        // Registrar token para habilitar temporalmente la aplicación del tweak avanzado en el motor
+        engine.register_session_token(&session.session_token);
 
         let mut guard = self.current_session.lock().map_err(|_| {
             AppError::RequiresAbTest("Mutex de sesión A/B envenenado.".to_string())
@@ -157,9 +175,9 @@ impl AbSessionManager {
             ));
         }
 
-        // Aplicación del tweak mediante el motor transaccional
+        // Aplicación del tweak mediante el motor transaccional con el token de sesión activo
         if session.state == AbSessionState::BaselineReady {
-            let _outcome = engine.apply_tweak_ab(&session.tweak_id)?;
+            let _outcome = engine.apply_tweak_ab(&session.tweak_id, Some(&session.session_token))?;
             session.state = AbSessionState::TweakApplied;
             session.can_rollback = true;
         }
@@ -205,6 +223,9 @@ impl AbSessionManager {
         session.explanation = Some(explanation);
         session.proposed_action = Some(proposed);
         session.state = AbSessionState::Completed;
+
+        // Al finalizar la prueba, invalidar el token para que el tweak no pueda modificarse fuera de sesión
+        engine.invalidate_session_token(&session.session_token);
 
         Ok(session.clone())
     }
@@ -260,12 +281,14 @@ fn evaluate_verdict(
     } else {
         (
             AbVerdict::Placebo,
-            "Sin Efecto Clínico (Variación Insignificante < 1.5%)".to_string(),
+            "Diferencia Despreciable (< 1.5%)".to_string(),
             format!(
-                "A pesar de p < 0.05, la magnitud del cambio ({:.2}%) es inferior al 1.5%, lo que en juego real representa menos de 0.2 ms y es imperceptible para la respuesta humana.",
-                delta_pct.abs()
+                "La diferencia es de solo {:.2}% (mediana: {:.2} ms vs {:.2} ms), inferior al umbral mínimo de percepción competitiva.",
+                delta_pct,
+                b_sum.median,
+                t_sum.median
             ),
-            "Se propone revertir el tweak para preservar la estabilidad original de Windows.".to_string(),
+            "Se propone revertir el tweak a su estado original.".to_string(),
         )
     }
 }

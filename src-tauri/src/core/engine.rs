@@ -70,6 +70,7 @@ pub struct Engine {
     catalog: Catalog,
     db: Database,
     restore_points: RestorePointManager,
+    active_tokens: std::sync::Mutex<HashSet<String>>,
 }
 
 impl Engine {
@@ -78,7 +79,27 @@ impl Engine {
             catalog,
             db,
             restore_points: RestorePointManager::new(),
+            active_tokens: std::sync::Mutex::new(HashSet::new()),
         }
+    }
+
+    pub fn register_session_token(&self, token: &str) {
+        if let Ok(mut tokens) = self.active_tokens.lock() {
+            tokens.insert(token.to_string());
+        }
+    }
+
+    pub fn invalidate_session_token(&self, token: &str) {
+        if let Ok(mut tokens) = self.active_tokens.lock() {
+            tokens.remove(token);
+        }
+    }
+
+    pub fn is_token_active(&self, token: &str) -> bool {
+        self.active_tokens
+            .lock()
+            .map(|tokens| tokens.contains(token))
+            .unwrap_or(false)
     }
 
     pub fn db(&self) -> &Database {
@@ -348,19 +369,29 @@ impl Engine {
         Ok(msg)
     }
 
-    /// En Etapa 2 el motor aplica/verifica/revierte únicamente los 6 ítems SEGUROS.
-    /// Cualquier intento sobre un ítem AVANZADO devuelve error explícito indicando Etapa 5 (A/B).
-    pub fn apply_tweak(&self, tweak_id: &str) -> AppResult<MutationOutcome> {
+    /// Aplica un tweak verificando si es de nivel Avanzado.
+    /// Si es Avanzado, exige un session_token activo originado en una sesión A/B o Test Ciego (Etapa 5).
+    pub fn apply_tweak_with_token(
+        &self,
+        tweak_id: &str,
+        session_token: Option<&str>,
+    ) -> AppResult<MutationOutcome> {
         let tweak = self.catalog.get_by_id(tweak_id)?;
 
-        // 1. guard.check (bloquea inmediatamente los 8 ítems Bloqueados y claves fuera de allowlist)
+        // 1. guard.check (bloquea inmediatamente los ítems Bloqueados y claves fuera de allowlist)
         guard::check_can_apply(tweak)?;
 
-        // Candado estricto de Etapa 2: ningún tweak Avanzado puede aplicarse sin sesión A/B (Etapa 5)
+        // Candado estricto de Etapa 5: los tweaks Avanzados solo se aplican dentro de una sesión A/B o Test Ciego con token activo
         if tweak.nivel == TweakLevel::Avanzado {
-            return Err(AppError::RequiresAbTest(
-                "Este tweak requiere prueba A/B (disponible en Etapa 5)".to_string(),
-            ));
+            let is_valid = session_token
+                .map(|tok| self.is_token_active(tok))
+                .unwrap_or(false);
+
+            if !is_valid {
+                return Err(AppError::RequiresAbTest(
+                    "Este tweak es de nivel Avanzado y requiere una sesión A/B o Test Ciego activa con token válido.".to_string(),
+                ));
+            }
         }
 
         match &tweak.target {
@@ -396,45 +427,15 @@ impl Engine {
         }
     }
 
+    pub fn apply_tweak(&self, tweak_id: &str) -> AppResult<MutationOutcome> {
+        self.apply_tweak_with_token(tweak_id, None)
+    }
+
     /// Aplica un tweak dentro de una sesión A/B controlada.
     /// Permite evaluar tanto tweaks Seguros como Avanzados, ejecutando el flujo transaccional
     /// completo: guard -> backup JSON atómico -> restore_point -> apply -> verify -> log.
-    pub fn apply_tweak_ab(&self, tweak_id: &str) -> AppResult<MutationOutcome> {
-        let tweak = self.catalog.get_by_id(tweak_id)?;
-
-        // 1. guard.check (bloquea tweaks prohibidos o claves fuera de allowlist)
-        guard::check_can_apply(tweak)?;
-
-        match &tweak.target {
-            TweakTarget::Registry {
-                hive,
-                ruta,
-                valor,
-                dato,
-                tipo_dato,
-            } => self.apply_registry_tweak(tweak, *hive, ruta, valor, dato, *tipo_dato),
-            TweakTarget::PowerPlan { guid } => self.apply_power_plan_tweak(tweak, guid),
-            TweakTarget::PowerSetting {
-                subgroup_guid,
-                setting_guid,
-                ac_index,
-                dc_index,
-            } => self.apply_power_setting_tweak(
-                tweak,
-                subgroup_guid,
-                setting_guid,
-                *ac_index,
-                *dc_index,
-            ),
-            TweakTarget::Process { .. } => {
-                Err(AppError::StagePending(
-                    "Los ajustes dinámicos por proceso de juego pertenecen a la Etapa 6".to_string(),
-                ))
-            }
-            TweakTarget::Blocked { .. } => Err(AppError::GuardViolation(
-                "Bloqueado por seguridad. Ver pestaña Anti-mitos".to_string(),
-            )),
-        }
+    pub fn apply_tweak_ab(&self, tweak_id: &str, token: Option<&str>) -> AppResult<MutationOutcome> {
+        self.apply_tweak_with_token(tweak_id, token)
     }
 
     fn apply_registry_tweak(
