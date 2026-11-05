@@ -492,6 +492,11 @@ export interface BufferbloatResult {
   status_label: string;
   explanation: string;
   sqm_recommendation: string;
+  verdict?: string;
+  target_host?: string;
+  idle_avg_ms?: number;
+  loaded_avg_ms?: number;
+  sqm_recommended?: boolean;
 }
 
 export interface FullExportPayload {

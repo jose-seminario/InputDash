@@ -909,13 +909,13 @@ export function DashboardView() {
         )}
 
         {bufferbloatResult && (
-          <div className={`verdict-card verdict-${bufferbloatResult.verdict}`} style={{ marginTop: "14px" }}>
+          <div className={`verdict-card verdict-${bufferbloatResult.status}`} style={{ marginTop: "14px" }}>
             <div className="verdict-header">
               <div>
                 <span className="verdict-tag">Grado de Bufferbloat</span>
                 <h3 className="verdict-title">Calificación: Grado {bufferbloatResult.grade}</h3>
                 <span className="meta-mono" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
-                  Host evaluado: {bufferbloatResult.target_host} · Muestras: {bufferbloatResult.idle_samples_count} reposo / {bufferbloatResult.loaded_samples_count} bajo carga
+                  {bufferbloatResult.status_label} · Host: {targetHost.trim() || "8.8.8.8"}
                 </span>
               </div>
               <div className="verdict-hz-large">
@@ -927,12 +927,12 @@ export function DashboardView() {
             <div className="verdict-grid">
               <div className="verdict-stat">
                 <span className="stat-label">Latencia en Reposo (Idle):</span>
-                <span className="stat-value">{bufferbloatResult.idle_avg_ms} ms</span>
+                <span className="stat-value">{bufferbloatResult.baseline_ping_ms} ms</span>
                 <span className="stat-sub">RTT sin saturación</span>
               </div>
               <div className="verdict-stat">
                 <span className="stat-label">Latencia Bajo Carga (Loaded):</span>
-                <span className="stat-value">{bufferbloatResult.loaded_avg_ms} ms</span>
+                <span className="stat-value">{bufferbloatResult.loaded_ping_ms} ms</span>
                 <span className="stat-sub">RTT con saturación TCP</span>
               </div>
               <div className="verdict-stat">
@@ -950,10 +950,10 @@ export function DashboardView() {
               <div className="verdict-stat">
                 <span className="stat-label">Recomendación SQM:</span>
                 <span className="stat-value" style={{ fontSize: "15px" }}>
-                  {bufferbloatResult.sqm_recommended ? "Requiere SQM (CAKE / FQ-CoDel)" : "Router Estable"}
+                  {bufferbloatResult.delta_ms > 15 ? "Requiere SQM (CAKE / FQ-CoDel)" : "Router Estable"}
                 </span>
                 <span className="stat-sub">
-                  {bufferbloatResult.sqm_recommended ? "Alta congestión en cola" : "Sin hinchazón de buffer"}
+                  {bufferbloatResult.delta_ms > 15 ? "Alta congestión en cola" : "Sin hinchazón de buffer"}
                 </span>
               </div>
             </div>
@@ -964,7 +964,7 @@ export function DashboardView() {
                   <strong>Diagnóstico de Red: </strong>
                   {bufferbloatResult.explanation}
                 </p>
-                {bufferbloatResult.sqm_recommended && (
+                {bufferbloatResult.delta_ms > 15 && (
                   <p style={{ marginTop: "4px", fontSize: "12px", color: "var(--text-secondary)" }}>
                     💡 Ve a la pestaña <strong>Guías In-Game</strong> para aprender a activar SQM / CAKE en tu router doméstico.
                   </p>
