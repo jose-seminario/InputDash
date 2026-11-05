@@ -30,7 +30,9 @@ InputDash fue diseñado desde su primera línea de código respetando las polít
 - **Detección Limpia de Procesos**: La monitorización de juegos utiliza únicamente la API nativa de Windows `CreateToolhelp32Snapshot` con flags de privilegios mínimos (`PROCESS_QUERY_LIMITED_INFORMATION`).
 - **Cero Procesos Externos en Backend**: Toda interacción con el sistema operativo se realiza directamente mediante llamadas tipadas a la API Win32 a través de `windows-rs`. Está estrictamente prohibido el uso de `std::process::Command`, `powershell.exe`, `cmd.exe` o ejecutables externos.
 - **Seguridad Transaccional**: Todo tweak del sistema pasa por el pipeline obligatorio:
-  $$\text{guard.check} \longrightarrow \text{backup.snapshot} \longrightarrow \text{restore\_point} \longrightarrow \text{apply} \longrightarrow \text{verify} \longrightarrow \text{log}$$
+  ```text
+  guard.check -> backup.snapshot -> restore_point -> apply -> verify -> log
+  ```
 
 ---
 
@@ -55,7 +57,9 @@ InputDash fue diseñado desde su primera línea de código respetando las polít
 
 ### 5. Total Engagement Latency (TEL) & Ventana de Ventaja
 - Modela matemáticamente el retardo integral de la cadena:
-  $$\text{TEL} = \text{Latencia USB} + \text{Frame Time} + \text{Scanout Monitor} + \text{One-Way Ping} + \frac{1}{2}\text{Tick Duration}$$
+  ```text
+  TEL = Latencia USB + Frame Time + Scanout Monitor + One-Way Ping + (1/2 * Tick Duration)
+  ```
 - Compara la ventana de ventaja competitiva (*Peeker's Advantage*) del usuario frente a oponentes con pings de 20 ms, 50 ms y 80 ms a tickrates de 64 y 128 ticks.
 
 ### 6. Motor de Experimentación A/B y Test Doble Ciego
@@ -73,7 +77,7 @@ InputDash fue diseñado desde su primera línea de código respetando las polít
 - Test en dos fases sin saturar la red con software pesado:
   - **Fase A (Reposo)**: Medición de RTT base mediante conexión TCP nativa (`TcpStream`).
   - **Fase B (Saturación)**: Descarga concurrente con 4 hilos secundarios midiendo la degradación del ping bajo carga.
-- Calificación de Grado (A+ a F), cálculo de $\Delta\text{ ms}$ y recomendación de algoritmos **SQM (CAKE / FQ-CoDel)** para el router.
+- Calificación de Grado (A+ a F), cálculo del incremento de latencia (Δ ms) y recomendación de algoritmos **SQM (CAKE / FQ-CoDel)** para el router.
 
 ### 9. Guías Educativas In-Game (Solo Lectura)
 - Guías paso a paso respaldadas por instrumental físico:
