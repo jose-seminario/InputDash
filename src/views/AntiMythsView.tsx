@@ -17,17 +17,57 @@ const VERIFIED_PRINCIPLES: EducationalPrinciple[] = [
     reality:
       "El algoritmo de Nagle y los Delayed ACKs forman parte exclusiva de la máquina de estados del protocolo TCP (orientado a flujo con retransmisión). Todos los shooters competitivos modernos envían coordenadas y disparos mediante datagramas UDP puros, que jamás pasan por Nagle.",
     whatActuallyWorks:
-      "InputDash bloquea ofrecer Nagle en juegos UDP para evitar placebo, y solo lo habilita en juegos TCP reales (ej. MMOs). Para shooters UDP lo determinante es eliminar Bufferbloat (SQM en router) y usar Ethernet.",
+      "InputDash bloquea ofrecer Nagle en juegos UDP para evitar placebo, y solo lo habilita en juegos TCP reales (ej. MMOs). Para shooters UDP lo determinante es eliminar Bufferbloat (SQM en router) y usar conexión cableada Ethernet.",
+  },
+  {
+    id: "dns_and_hitreg",
+    title: "Cambiar Servidores DNS (1.1.1.1 / 8.8.8.8) para 'Bajar Ping o Mejorar Hitreg'",
+    claim:
+      "Mito popular: 'Cambiar las DNS públicas de Cloudflare o Google reduce el ping dentro de la partida y mejora el registro de impactos'.",
+    reality:
+      "El servidor DNS únicamente resuelve el nombre de dominio a dirección IP una sola vez al conectar o abrir el juego. Durante la partida, todos los paquetes viajan directamente por IP numérica al servidor de juego mediante enrutamiento BGP; el DNS no interviene en ningún momento del gameplay.",
+    whatActuallyWorks:
+      "Configurar un buen enrutamiento ISP con fibra óptica o usar tecnologías de enrutamiento optimizado hacia servidores de juego dedicados.",
+  },
+  {
+    id: "hpet_and_bcdedit",
+    title: "Desactivar HPET o Modificar bcdedit (useplatformclock / disabledynamictick)",
+    claim:
+      "Mito popular: 'Forzar disabledynamictick yes o useplatformclock false por comando bcdedit elimina micro-retrasos del temporizador del sistema'.",
+    reality:
+      "Windows 10 y 11 utilizan el TSC (Time Stamp Counter) invariante de la CPU moderna por defecto vía QPC. Forzar parámetros obsoletos de bcdedit desestabiliza la sincronización de reloj del kernel, deforma los frametimes (provocando micro-stuttering) y en muchos equipos causa fallos críticos de arranque (BSOD).",
+    whatActuallyWorks:
+      "Mantener la gestión de reloj nativa del sistema operativo basada en TSC sin alterar los parámetros de arranque del BCD.",
+  },
+  {
+    id: "telemetry_and_background",
+    title: "Eliminar o Deshabilitar Servicios de Telemetría (DiagTrack)",
+    claim:
+      "Mito popular: 'Desinstalar o romper la telemetría de Windows baja drásticamente la latencia de renderizado de la GPU y la CPU'.",
+    reality:
+      "La telemetría de Windows se ejecuta con prioridad IDLE/fondo en subprocesos de baja prioridad y no compite con la ruta crítica de renderizado (click-to-photon). Las mediciones científicas con herramientas de hardware como NVIDIA LDAT arrojan una diferencia neta de 0.0 ms. Además, romper estos servicios daña la integridad de Windows Update y componentes del sistema.",
+    whatActuallyWorks:
+      "Activar el Modo Juego (Game Mode) oficial de Windows, el cual prioriza automáticamente los hilos del proceso en primer plano y pausa tareas de mantenimiento del SO sin dañar dependencias.",
+  },
+  {
+    id: "game_boosters_ram",
+    title: "Game Boosters y Limpiadores Periódicos de RAM (EmptyWorkingSet)",
+    claim:
+      "Mito popular: 'Usar programas que liberan memoria RAM periódicamente evita tirones y hace que los juegos vayan más fluidos'.",
+    reality:
+      "Windows utiliza la memoria libre de forma inteligente como Standby Cache para almacenar assets, texturas y shaders reutilizados por el motor del juego. 'Liberar RAM' vacía abruptamente esta caché expulsándola hacia el disco o archivo de paginación, provocando hard page faults y caídas severas de los 1% y 0.1% lows (stuttering masivo) en pleno tiroteo.",
+    whatActuallyWorks:
+      "Permitir que el administrador de memoria virtual del kernel gestione la caché de forma nativa y cerrar aplicaciones pesadas en segundo plano (navegadores con vídeo, programas de render) antes de jugar.",
   },
   {
     id: "more_fps_99_gpu",
     title: "Más FPS Brutos con la GPU al 99% = Menos Input Lag",
     claim:
-      "Mito popular: 'Jugar con FPS ilimitados (350 FPS al 99% de GPU) siempre da menor latencia que limitar a 225 FPS'.",
+      "Mito popular: 'Jugar con FPS ilimitados (350 FPS con la GPU al 99-100%) siempre proporciona menor latencia que limitar a 225 FPS'.",
     reality:
-      "Cuando la GPU alcanza el 98-100% de utilización, la CPU sigue encolando cuadros en la Render Queue antes de que la GPU termine el anterior. Esa fila de espera suma entre 12 ms y 40 ms de retraso a lo que ves en pantalla.",
+      "Cuando la GPU alcanza el 98-100% de saturación, la CPU continúa acumulando cuadros pendientes en la Render Queue del controlador antes de que la GPU finalice el fotograma actual. Esta cola de renderizado en espera añade entre 12 ms y 40 ms de input lag a lo que se visualiza en pantalla.",
     whatActuallyWorks:
-      "Activar NVIDIA Reflex (On + Boost) o AMD Anti-Lag 2 dentro del juego, o configurar VRR + V-Sync ON en panel del driver + V-Sync OFF in-game + límite de FPS ~3 cuadros bajo los Hz del monitor.",
+      "Activar NVIDIA Reflex (On + Boost) o AMD Anti-Lag 2 dentro del juego para vaciar la cola de renderizado, o aplicar VRR (G-Sync/FreeSync) + V-Sync activado en panel de control + límite de fotogramas ~3 FPS por debajo de la tasa de refresco del monitor.",
   },
 ];
 

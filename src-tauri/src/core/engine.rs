@@ -390,9 +390,9 @@ impl Engine {
                     "Los ajustes dinámicos por proceso de juego pertenecen a la Etapa 6".to_string(),
                 ))
             }
-            TweakTarget::Blocked { motivo_bloqueo } => {
-                Err(AppError::GuardViolation(motivo_bloqueo.clone()))
-            }
+            TweakTarget::Blocked { .. } => Err(AppError::GuardViolation(
+                "Bloqueado por seguridad. Ver Anti-mitos".to_string(),
+            )),
         }
     }
 

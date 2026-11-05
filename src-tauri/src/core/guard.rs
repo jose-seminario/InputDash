@@ -173,10 +173,9 @@ pub fn validate_power_setting_guids(subgroup: &str, setting: &str) -> AppResult<
 
 pub fn check_can_apply(tweak: &TweakDefinition) -> AppResult<()> {
     if tweak.nivel == TweakLevel::Bloqueado {
-        return Err(AppError::GuardViolation(format!(
-            "El tweak '{}' ({}) está catalogado como BLOQUEADO y jamás puede aplicarse.",
-            tweak.nombre, tweak.id
-        )));
+        return Err(AppError::GuardViolation(
+            "Bloqueado por seguridad. Ver Anti-mitos".to_string(),
+        ));
     }
 
     match &tweak.target {
@@ -198,9 +197,9 @@ pub fn check_can_apply(tweak: &TweakDefinition) -> AppResult<()> {
                 )))
             }
         }
-        TweakTarget::Blocked { motivo_bloqueo } => Err(AppError::GuardViolation(format!(
-            "Tweak bloqueado: {motivo_bloqueo}"
-        ))),
+        TweakTarget::Blocked { .. } => Err(AppError::GuardViolation(
+            "Bloqueado por seguridad. Ver Anti-mitos".to_string(),
+        )),
     }
 }
 
