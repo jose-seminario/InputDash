@@ -128,107 +128,134 @@ export interface StructuredBackendError {
   message: string;
 }
 
-export interface MouseDeviceInfo {
-  device_name: string;
-  is_connected: boolean;
-}
-
-export interface KeyboardDeviceInfo {
-  device_name: string;
-  is_connected: boolean;
-}
-
-export interface DisplayInfo {
-  device_name: string;
-  monitor_name: string;
-  refresh_hz: number;
-  is_primary: boolean;
-}
-
 export interface GpuInfo {
   name: string;
-  dedicated_vram_mb: number;
+  vram_mb: number;
   driver_version: string;
+  dedicated_vram_mb?: number;
 }
+
+export interface MonitorInfo {
+  resolution: string;
+  refresh_hz: number;
+  supports_vrr: boolean;
+}
+
+export interface HidDeviceInfo {
+  name: string;
+  vid: string;
+  pid: string;
+  transport: string;
+  device_type: string;
+  raw_path: string;
+  device_name?: string;
+  is_connected?: boolean;
+}
+
+// Aliases de compatibilidad para periféricos y pantallas
+export type MouseDeviceInfo = HidDeviceInfo;
+export type KeyboardDeviceInfo = HidDeviceInfo;
+export type DisplayInfo = MonitorInfo;
 
 export interface HardwareDiagnosticInfo {
   gpu: GpuInfo;
-  displays: DisplayInfo[];
-  primary_display_hz: number;
-  mice: MouseDeviceInfo[];
-  keyboards: KeyboardDeviceInfo[];
-  active_mouse_name: string;
+  monitor: MonitorInfo;
+  mice: HidDeviceInfo[];
+  keyboards: HidDeviceInfo[];
+  displays?: DisplayInfo[];
+  primary_display_hz?: number;
+  active_mouse_name?: string;
 }
 
 export interface PollingAnalysisResult {
-  sample_count: number;
-  estimated_hz: number;
+  measured_hz: number;
   avg_interval_ms: number;
+  jitter_ms: number;
   min_interval_ms: number;
   max_interval_ms: number;
-  interval_std_dev_ms: number;
-  jitter_ms: number;
+  sample_count: number;
   status: "optimo" | "aceptable" | "critico";
   status_label: string;
-  explanation: string;
-}
-
-export interface DriverDetail {
-  name: string;
-  version: string;
-  provider: string;
-  date: string;
-  is_outdated: boolean;
+  estimated_hz?: number;
+  interval_std_dev_ms?: number;
+  explanation?: string;
 }
 
 export interface DriversInfo {
-  gpu_driver: DriverDetail;
-  network_driver: DriverDetail;
-  audio_driver: DriverDetail;
+  active_nic_name: string;
+  active_nic_driver: string;
+  primary_audio_name: string;
+  primary_audio_driver: string;
 }
 
-export interface NetworkAnalysisResult {
+export interface NicModerationInfo {
+  adapter_name: string;
+  value_str: string;
+  is_enabled: boolean;
+  verdict: string;
+  explanation: string;
+}
+
+export interface IcmpAnalysisResult {
   target_host: string;
-  ping_samples_ms: number[];
+  pings_sent: number;
+  pings_received: number;
+  packet_loss_pct: number;
   avg_ping_ms: number;
   min_ping_ms: number;
   max_ping_ms: number;
   jitter_ms: number;
+}
+
+export interface UdpAnalysisResult {
+  target_host: string;
+  target_port: number;
+  packets_sent: number;
+  packets_received: number;
   packet_loss_pct: number;
-  is_wifi: boolean;
-  connection_type: "Ethernet" | "Wi-Fi" | "Desconocido";
+  avg_rtt_ms: number;
+  jitter_ms: number;
+  min_rtt_ms: number;
+  max_rtt_ms: number;
+}
+
+export interface NetworkAnalysisResult {
+  host: string;
+  icmp: IcmpAnalysisResult;
+  udp: UdpAnalysisResult;
   status: "optimo" | "aceptable" | "critico";
   status_label: string;
   explanation: string;
 }
 
 export interface UsbDeviceNode {
-  name: string;
-  hardware_id: string;
+  device_name: string;
+  instance_id: string;
   is_mouse: boolean;
+  is_audio: boolean;
+  name?: string;
+  hardware_id?: string;
 }
 
-export interface UsbControllerNode {
+export interface UsbHostControllerGroup {
+  controller_id: string;
   controller_name: string;
-  has_mouse: boolean;
   devices: UsbDeviceNode[];
-  sharing_with_high_bandwidth: boolean;
+  has_contention: boolean;
+  contention_details: string | null;
 }
+
+// Aliases de compatibilidad para controladores USB
+export type UsbControllerNode = UsbHostControllerGroup;
 
 export interface UsbTopologyInfo {
-  controllers: UsbControllerNode[];
-  has_contention: boolean;
-  mouse_controller_name: string;
-  status: "optimo" | "advertencia" | "desconocido";
-  status_label: string;
-  explanation: string;
-}
-
-export interface NicModerationInfo {
-  adapter_name: string;
-  moderation_mode: "Disabled" | "Low" | "Medium" | "High" | "Adaptive" | "Unknown";
-  is_optimal_for_gaming: boolean;
-  recommendation: string;
+  controllers: UsbHostControllerGroup[];
+  any_contention_detected: boolean;
+  has_contention?: boolean;
+  mouse_controller_name?: string;
+  status?: "optimo" | "advertencia" | "desconocido";
+  status_label?: string;
+  explanation?: string;
 }
 
 export interface FrametimeAnalysisResult {
