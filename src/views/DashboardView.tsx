@@ -37,6 +37,8 @@ export function DashboardView() {
   const mice = hardware?.mice ?? [];
   const keyboards = hardware?.keyboards ?? [];
 
+  const isAnyLoading = isHardwareLoading || isDriversLoading || isUsbLoading;
+
   const formatVram = (mb: number) => {
     if (mb >= 1024) {
       const gb = (mb / 1024).toFixed(1);
@@ -69,10 +71,10 @@ export function DashboardView() {
           <button
             type="button"
             className="btn btn-secondary btn-small"
-            disabled={isHardwareLoading || isPollingAnalyzing || isNetworkAnalyzing}
+            disabled={isAnyLoading || isPollingAnalyzing || isNetworkAnalyzing}
             onClick={() => void fetchAllDiagnostics()}
           >
-            {isHardwareLoading ? "Detectando..." : "Actualizar Todo"}
+            {isAnyLoading ? "Detectando..." : "Actualizar Todo"}
           </button>
         </div>
 
@@ -125,9 +127,81 @@ export function DashboardView() {
         </div>
       </section>
 
-      {/* SECCIÓN 2: CONTROLADORES Y ADAPTADOR DE RED */}
+      {/* SECCIÓN 2: PERIFÉRICOS DE ENTRADA (MOUSE Y TECLADO HID) */}
       <section className="dashboard-section">
-        <h2 className="section-heading">2. Controladores de Red, Audio e Interrupt Moderation</h2>
+        <h2 className="section-heading">2. Dispositivos de Entrada (Mouse y Teclado HID)</h2>
+        <div className="diag-cards-grid">
+          {/* Mice */}
+          <div className="diag-card">
+            <div className="diag-card-header">
+              <span className="diag-card-tag">Mouse / Puntero Activo</span>
+              <span className="badge badge-default">Raw Input HID</span>
+            </div>
+            {mice.length === 0 ? (
+              <p className="tweak-desc">No se encontraron dispositivos de mouse en la lista Raw Input.</p>
+            ) : (
+              mice.map((m, idx) => (
+                <div key={m.raw_path || idx} className="peripheral-item">
+                  <div className="peripheral-title-row">
+                    <strong className="peripheral-name">{m.name}</strong>
+                    <span
+                      className={`badge ${
+                        m.transport === "USB"
+                          ? "badge-applied"
+                          : m.transport === "Bluetooth"
+                          ? "badge-warn"
+                          : "badge-default"
+                      }`}
+                    >
+                      {m.transport}
+                    </span>
+                  </div>
+                  <div className="peripheral-meta">
+                    <span>
+                      VID: <code className="meta-mono">{m.vid}</code>
+                    </span>
+                    <span>
+                      PID: <code className="meta-mono">{m.pid}</code>
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Keyboards */}
+          <div className="diag-card">
+            <div className="diag-card-header">
+              <span className="diag-card-tag">Teclado(s) Detectado(s)</span>
+              <span className="badge badge-default">Raw Input HID</span>
+            </div>
+            {keyboards.length === 0 ? (
+              <p className="tweak-desc">No se encontraron teclados en la lista Raw Input.</p>
+            ) : (
+              keyboards.map((k, idx) => (
+                <div key={k.raw_path || idx} className="peripheral-item">
+                  <div className="peripheral-title-row">
+                    <strong className="peripheral-name">{k.name}</strong>
+                    <span className="badge badge-default">{k.transport}</span>
+                  </div>
+                  <div className="peripheral-meta">
+                    <span>
+                      VID: <code className="meta-mono">{k.vid}</code>
+                    </span>
+                    <span>
+                      PID: <code className="meta-mono">{k.pid}</code>
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* SECCIÓN 3: CONTROLADORES Y ADAPTADOR DE RED */}
+      <section className="dashboard-section">
+        <h2 className="section-heading">3. Controladores de Red, Audio e Interrupt Moderation</h2>
         <div className="diag-cards-grid">
           {/* NIC Driver & Moderation Card */}
           <div className="diag-card">
@@ -190,12 +264,12 @@ export function DashboardView() {
         </div>
       </section>
 
-      {/* SECCIÓN 3: TOPOLOGÍA USB Y CONTENCIÓN */}
+      {/* SECCIÓN 4: TOPOLOGÍA USB Y CONTENCIÓN */}
       <section className="dashboard-section">
         <div className="section-header-row">
           <div>
             <h2 className="section-heading" style={{ margin: 0 }}>
-              3. Topología USB y Detección de Contención (Root Hub Contention)
+              4. Topología USB y Detección de Contención (Root Hub Contention)
             </h2>
             <p className="tweak-desc" style={{ marginBottom: 0, marginTop: "4px" }}>
               Mapea qué periféricos comparten el mismo controlador raíz USB mediante <code>SetupAPI</code> y <code>CfgMgr32</code>.
@@ -273,12 +347,12 @@ export function DashboardView() {
         </div>
       </section>
 
-      {/* SECCIÓN 4: ANÁLISIS DE POLLING RATE DEL MOUSE */}
+      {/* SECCIÓN 5: ANÁLISIS DE POLLING RATE DEL MOUSE */}
       <section className="dashboard-section polling-analysis-section">
         <div className="polling-box-header">
           <div>
             <h2 className="section-heading" style={{ margin: 0 }}>
-              4. Medición Científica de Polling Rate del Mouse
+              5. Medición Científica de Polling Rate del Mouse
             </h2>
             <p className="tweak-desc" style={{ marginBottom: 0, marginTop: "4px" }}>
               Captura ráfagas de paquetes HID en tiempo real con <code>QueryPerformanceCounter</code> durante una ventana
@@ -381,12 +455,12 @@ export function DashboardView() {
         )}
       </section>
 
-      {/* SECCIÓN 5: ANÁLISIS DE RED (ICMP + UDP JITTER) */}
+      {/* SECCIÓN 6: ANÁLISIS DE RED (ICMP + UDP JITTER) */}
       <section className="dashboard-section polling-analysis-section">
         <div className="polling-box-header">
           <div>
             <h2 className="section-heading" style={{ margin: 0 }}>
-              5. Diagnóstico de Red y Jitter UDP (Tickrate 64)
+              6. Diagnóstico de Red y Jitter UDP (Tickrate 64)
             </h2>
             <p className="tweak-desc" style={{ marginBottom: 0, marginTop: "4px" }}>
               Ejecuta 20 solicitudes ICMP Echo nativas (<code>IcmpSendEcho</code>) y 50 paquetes UDP a intervalos de 15.6 ms
