@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::profiles::games::{GameProfile, ProfileRuntimeState};
 use crate::sys::process::{
-    self, get_core_contention, get_cpu_topology, get_running_processes, set_process_affinity,
+    get_core_contention, get_cpu_topology, get_running_processes, set_process_affinity,
     set_process_priority, CoreContentionInfo, CpuTopologyInfo,
 };
 use crate::sys::timer::TimerResolutionGuard;
@@ -70,17 +70,17 @@ impl ProfileManager {
 
         let mut newly_detected: Option<(String, u32, String)> = None;
 
-        // 1. Verificar si el juego actualmente activo sigue corriendo
-        if let (Some(active_id), Some(active_pid)) = (&guard.active_profile_id, guard.active_pid) {
+        // 1. Verificar si el juego actualmente activo sigue corriendo (clonar ID para no tomar prestado guard)
+        let active_id_opt = guard.active_profile_id.clone();
+        if let (Some(active_id), Some(active_pid)) = (active_id_opt, guard.active_pid) {
             let still_running = running_processes.iter().any(|p| p.pid == active_pid);
             if !still_running {
                 // El juego se cerró: Revertir timer de inmediato con RAII
                 guard.timer_guard = None; // Drop de TimerResolutionGuard restaura el SO
-                let active_id_clone = active_id.clone();
                 guard.active_profile_id = None;
                 guard.active_pid = None;
 
-                if let Some(prof) = guard.profiles.iter_mut().find(|p| p.id == active_id_clone) {
+                if let Some(prof) = guard.profiles.iter_mut().find(|p| p.id == active_id) {
                     prof.runtime_state = ProfileRuntimeState::Waiting;
                     prof.detected_pid = None;
                     prof.detected_exe = None;
@@ -180,12 +180,18 @@ impl ProfileManager {
 
     pub fn toggle_profile(&self, id: &str, enabled: bool) -> Result<GameProfile, String> {
         let mut guard = self.state.lock().map_err(|e| e.to_string())?;
+
+        // Evaluar estado activo antes de prestar guard.profiles de forma mutable
+        let is_active = guard.active_profile_id.as_deref() == Some(id);
+        if !enabled && is_active {
+            guard.timer_guard = None;
+            guard.active_profile_id = None;
+            guard.active_pid = None;
+        }
+
         if let Some(prof) = guard.profiles.iter_mut().find(|p| p.id == id) {
             prof.enabled = enabled;
-            if !enabled && guard.active_profile_id.as_deref() == Some(id) {
-                guard.timer_guard = None;
-                guard.active_profile_id = None;
-                guard.active_pid = None;
+            if !enabled && is_active {
                 prof.runtime_state = ProfileRuntimeState::Waiting;
                 prof.detected_pid = None;
                 prof.detected_exe = None;

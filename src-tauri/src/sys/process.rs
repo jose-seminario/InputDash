@@ -77,7 +77,7 @@ fn query_cpu_brand() -> String {
     use std::arch::x86_64::__cpuid;
     let mut brand_bytes = [0u8; 48];
     for (i, func) in [0x80000002u32, 0x80000003, 0x80000004].iter().enumerate() {
-        let res = unsafe { __cpuid(*func) };
+        let res = __cpuid(*func);
         let regs = [res.eax, res.ebx, res.ecx, res.edx];
         for (r_idx, reg) in regs.iter().enumerate() {
             let b = reg.to_ne_bytes();
