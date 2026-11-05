@@ -5,7 +5,7 @@ export type RiskLevel = "bajo" | "medio" | "alto";
 export type GameProtocol = "udp" | "tcp" | "ambos";
 export type RegistryHive = "HKCU" | "HKLM";
 export type RegistryValueKind = "DWORD" | "QWORD" | "SZ";
-export type ActiveTab = "optimizar" | "seguridad" | "antimitos";
+export type ActiveTab = "dashboard" | "optimizar" | "seguridad" | "antimitos";
 export type PresetId = "competitivo" | "equilibrado";
 
 export type TweakTarget =
@@ -126,4 +126,43 @@ export interface ChangeLogEntry {
 export interface StructuredBackendError {
   code: string;
   message: string;
+}
+
+export interface GpuInfo {
+  name: string;
+  vram_mb: number;
+  driver_version: string;
+}
+
+export interface MonitorInfo {
+  resolution: string;
+  refresh_hz: number;
+  supports_vrr: boolean;
+}
+
+export interface HidDeviceInfo {
+  name: string;
+  vid: string;
+  pid: string;
+  transport: string;
+  device_type: string;
+  raw_path: string;
+}
+
+export interface HardwareDiagnosticInfo {
+  gpu: GpuInfo;
+  monitor: MonitorInfo;
+  mice: HidDeviceInfo[];
+  keyboards: HidDeviceInfo[];
+}
+
+export interface PollingAnalysisResult {
+  measured_hz: number;
+  avg_interval_ms: number;
+  jitter_ms: number;
+  min_interval_ms: number;
+  max_interval_ms: number;
+  sample_count: number;
+  status: "optimo" | "aceptable" | "critico";
+  status_label: string;
 }

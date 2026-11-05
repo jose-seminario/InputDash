@@ -63,6 +63,12 @@ pub enum AppError {
 
     #[error("Plataforma no soportada: {0}")]
     UnsupportedPlatform(String),
+
+    #[error("Error en diagnóstico de hardware: {0}")]
+    HardwareDiag(String),
+
+    #[error("{0}")]
+    PollingAnalysis(String),
 }
 
 #[derive(Serialize)]
@@ -89,6 +95,8 @@ impl AppError {
             Self::Database(_) => "DATABASE_ERROR",
             Self::Catalog(_) => "CATALOG_ERROR",
             Self::UnsupportedPlatform(_) => "UNSUPPORTED_PLATFORM",
+            Self::HardwareDiag(_) => "HARDWARE_DIAG_ERROR",
+            Self::PollingAnalysis(_) => "POLLING_ANALYSIS_ERROR",
         }
     }
 }

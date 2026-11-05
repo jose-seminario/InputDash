@@ -5,7 +5,9 @@ use crate::core::engine::{
     Engine, MutationOutcome, PresetOutcome, RevertAllOutcome, SimulationItem, TweakStatusView,
 };
 use crate::core::log::{self, ChangeLogEntry};
+use crate::diag::polling::{self, PollingAnalysisResult};
 use crate::error::{AppError, AppResult};
+use crate::sys::hardware::{self, HardwareDiagnosticInfo};
 use crate::AppState;
 
 fn require_engine<'a>(state: &'a State<'a, AppState>) -> AppResult<&'a Engine> {
@@ -89,4 +91,18 @@ pub fn get_change_logs(
     let engine = require_engine(&state)?;
     let max_rows = limit.unwrap_or(100).min(500);
     log::list_recent_changes(engine.db(), max_rows)
+}
+
+#[tauri::command]
+pub fn get_hardware_info() -> AppResult<HardwareDiagnosticInfo> {
+    Ok(hardware::get_hardware_diagnostic_info())
+}
+
+#[tauri::command]
+pub async fn start_polling_analysis() -> AppResult<PollingAnalysisResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        polling::run_polling_analysis()
+    })
+    .await
+    .map_err(|e| AppError::PollingAnalysis(format!("Error en tarea de polling: {e}")))?
 }

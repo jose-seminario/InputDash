@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod core;
 pub mod db;
+pub mod diag;
 pub mod error;
 pub mod sys;
 
@@ -39,6 +40,8 @@ pub fn run() {
             commands::create_restore_point,
             commands::get_active_backups,
             commands::get_change_logs,
+            commands::get_hardware_info,
+            commands::start_polling_analysis,
         ])
         .run(tauri::generate_context!())
         .expect("error fatal al iniciar la ventana de Tauri");

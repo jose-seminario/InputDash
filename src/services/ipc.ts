@@ -9,6 +9,8 @@ import type {
   SimulationItem,
   StructuredBackendError,
   TweakStatusView,
+  HardwareDiagnosticInfo,
+  PollingAnalysisResult,
 } from "../types/tweak";
 
 export function formatIpcError(err: unknown): StructuredBackendError {
@@ -71,4 +73,12 @@ export async function ipcGetActiveBackups(): Promise<BackupSnapshot[]> {
 
 export async function ipcGetChangeLogs(limit = 100): Promise<ChangeLogEntry[]> {
   return invoke<ChangeLogEntry[]>("get_change_logs", { limit });
+}
+
+export async function ipcGetHardwareInfo(): Promise<HardwareDiagnosticInfo> {
+  return invoke<HardwareDiagnosticInfo>("get_hardware_info");
+}
+
+export async function ipcStartPollingAnalysis(): Promise<PollingAnalysisResult> {
+  return invoke<PollingAnalysisResult>("start_polling_analysis");
 }

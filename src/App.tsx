@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useTweaksStore } from "./store/useTweaksStore";
 import { AntiMythsView } from "./views/AntiMythsView";
+import { DashboardView } from "./views/DashboardView";
 import { OptimizeView } from "./views/OptimizeView";
 import { SafetyView } from "./views/SafetyView";
 
@@ -59,6 +60,13 @@ export function App() {
       </header>
 
       <nav className="nav-tabs" aria-label="Secciones principales">
+        <button
+          type="button"
+          className={`nav-tab ${activeTab === "dashboard" ? "nav-tab-active" : ""}`}
+          onClick={() => setActiveTab("dashboard")}
+        >
+          Dashboard
+        </button>
         <button
           type="button"
           className={`nav-tab ${activeTab === "optimizar" ? "nav-tab-active" : ""}`}
@@ -125,6 +133,7 @@ export function App() {
       )}
 
       <main>
+        {activeTab === "dashboard" && <DashboardView />}
         {activeTab === "optimizar" && <OptimizeView />}
         {activeTab === "seguridad" && <SafetyView />}
         {activeTab === "antimitos" && <AntiMythsView />}

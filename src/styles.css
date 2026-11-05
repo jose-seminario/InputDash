@@ -456,3 +456,302 @@ body {
   color: var(--text-secondary);
   font-size: 13px;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Dashboard & Diagnostic Cards (Etapa 3.1)                                    */
+/* -------------------------------------------------------------------------- */
+
+.dashboard-container {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.dashboard-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.diag-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 14px;
+}
+
+.diag-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.diag-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.diag-card-tag {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.diag-card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.diag-metrics-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.diag-metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.diag-metric-row:last-child {
+  border-bottom: none;
+}
+
+.peripheral-item {
+  padding: 8px 10px;
+  background-color: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.peripheral-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.peripheral-name {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.peripheral-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* Polling Rate Box & Action Bar */
+
+.polling-analysis-section {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.polling-box-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.polling-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.btn-large {
+  padding: 12px 22px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.polling-spinner-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--accent-orange, #f59e0b);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.polling-spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(245, 158, 11, 0.2);
+  border-top-color: #f59e0b;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Tarjeta de Veredicto (Semáforo) */
+
+.verdict-card {
+  margin-top: 18px;
+  border-radius: 8px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid transparent;
+}
+
+.verdict-optimo {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.04));
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.verdict-aceptable {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04));
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.verdict-critico {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.14), rgba(239, 68, 68, 0.05));
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.verdict-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.verdict-tag {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.verdict-title {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.verdict-optimo .verdict-title {
+  color: #10b981;
+}
+
+.verdict-aceptable .verdict-title {
+  color: #f59e0b;
+}
+
+.verdict-critico .verdict-title {
+  color: #ef4444;
+}
+
+.verdict-hz-large {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.hz-number {
+  font-size: 32px;
+  font-weight: 900;
+  font-family: monospace;
+}
+
+.verdict-optimo .hz-number {
+  color: #10b981;
+}
+
+.verdict-aceptable .hz-number {
+  color: #f59e0b;
+}
+
+.verdict-critico .hz-number {
+  color: #ef4444;
+}
+
+.hz-unit {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.verdict-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  padding: 12px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+}
+
+.verdict-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.stat-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-family: monospace;
+  color: var(--text-primary);
+}
+
+.stat-sub {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.verdict-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.verdict-explanation {
+  flex: 1;
+}
+
+.verdict-explanation p {
+  margin: 0;
+}

@@ -1,0 +1,707 @@
+use core::ffi::c_void;
+use core::ptr;
+use serde::{Deserialize, Serialize};
+use windows::core::GUID;
+use windows::Win32::Foundation::{LUID, POINTL, RECTL};
+
+use crate::error::{AppError, AppResult};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuInfo {
+    pub name: String,
+    pub vram_mb: u64,
+    pub driver_version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorInfo {
+    pub resolution: String,
+    pub refresh_hz: f64,
+    pub supports_vrr: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HidDeviceInfo {
+    pub name: String,
+    pub vid: String,
+    pub pid: String,
+    pub transport: String,
+    pub device_type: String,
+    pub raw_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareDiagnosticInfo {
+    pub gpu: GpuInfo,
+    pub monitor: MonitorInfo,
+    pub mice: Vec<HidDeviceInfo>,
+    pub keyboards: Vec<HidDeviceInfo>,
+}
+
+// -----------------------------------------------------------------------------
+// DXGI COM FFI
+// -----------------------------------------------------------------------------
+
+#[repr(C)]
+struct DXGI_ADAPTER_DESC {
+    Description: [u16; 128],
+    VendorId: u32,
+    DeviceId: u32,
+    SubSysId: u32,
+    Revision: u32,
+    DedicatedVideoMemory: usize,
+    DedicatedSystemMemory: usize,
+    SharedSystemMemory: usize,
+    AdapterLuid: LUID,
+}
+
+#[link(name = "dxgi")]
+extern "system" {
+    fn CreateDXGIFactory(riid: *const GUID, pp_factory: *mut *mut c_void) -> i32;
+    fn CreateDXGIFactory1(riid: *const GUID, pp_factory: *mut *mut c_void) -> i32;
+}
+
+// -----------------------------------------------------------------------------
+// DisplayConfig FFI (user32.dll)
+// -----------------------------------------------------------------------------
+
+const QDC_ONLY_ACTIVE_PATHS: u32 = 0x00000002;
+const QDC_ALL_PATHS: u32 = 0x00000001;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct DISPLAYCONFIG_RATIONAL {
+    Numerator: u32,
+    Denominator: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct DISPLAYCONFIG_PATH_SOURCE_INFO {
+    adapterId: LUID,
+    id: u32,
+    modeInfoIdx: u32,
+    statusFlags: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct DISPLAYCONFIG_PATH_TARGET_INFO {
+    adapterId: LUID,
+    id: u32,
+    modeInfoIdx: u32,
+    outputTechnology: u32,
+    rotation: u32,
+    scaling: u32,
+    refreshRate: DISPLAYCONFIG_RATIONAL,
+    scanLineOrdering: u32,
+    targetAvailable: i32,
+    statusFlags: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct DISPLAYCONFIG_PATH_INFO {
+    sourceInfo: DISPLAYCONFIG_PATH_SOURCE_INFO,
+    targetInfo: DISPLAYCONFIG_PATH_TARGET_INFO,
+    flags: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct DISPLAYCONFIG_2DREGION {
+    cx: u32,
+    cy: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct DISPLAYCONFIG_VIDEO_SIGNAL_INFO {
+    pixelRate: u64,
+    hSyncFreq: DISPLAYCONFIG_RATIONAL,
+    vSyncFreq: DISPLAYCONFIG_RATIONAL,
+    activeSize: DISPLAYCONFIG_2DREGION,
+    totalSize: DISPLAYCONFIG_2DREGION,
+    videoStandard: u32,
+    scanLineOrdering: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct DISPLAYCONFIG_TARGET_MODE {
+    targetVideoSignalInfo: DISPLAYCONFIG_VIDEO_SIGNAL_INFO,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct DISPLAYCONFIG_SOURCE_MODE {
+    width: u32,
+    height: u32,
+    pixelFormat: u32,
+    position: POINTL,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct DISPLAYCONFIG_DESKTOP_IMAGE_INFO {
+    PathSourceSize: POINTL,
+    DesktopImageRegion: RECTL,
+    DesktopImageClip: RECTL,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+union DISPLAYCONFIG_MODE_INFO_UNION {
+    targetMode: DISPLAYCONFIG_TARGET_MODE,
+    sourceMode: DISPLAYCONFIG_SOURCE_MODE,
+    desktopImageInfo: DISPLAYCONFIG_DESKTOP_IMAGE_INFO,
+}
+
+impl Default for DISPLAYCONFIG_MODE_INFO_UNION {
+    fn default() -> Self {
+        DISPLAYCONFIG_MODE_INFO_UNION {
+            sourceMode: DISPLAYCONFIG_SOURCE_MODE::default(),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct DISPLAYCONFIG_MODE_INFO {
+    infoType: u32, // 1 = SOURCE, 2 = TARGET, 3 = DESKTOP_IMAGE
+    id: u32,
+    adapterId: LUID,
+    mode: DISPLAYCONFIG_MODE_INFO_UNION,
+}
+
+// -----------------------------------------------------------------------------
+// Raw Input FFI (user32.dll)
+// -----------------------------------------------------------------------------
+
+const RIDI_DEVICENAME: u32 = 0x20000007;
+const RIM_TYPEMOUSE: u32 = 0;
+const RIM_TYPEKEYBOARD: u32 = 1;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct RAWINPUTDEVICELIST {
+    hDevice: *mut c_void,
+    dwType: u32,
+}
+
+#[link(name = "user32")]
+extern "system" {
+    fn GetDisplayConfigBufferSizes(
+        flags: u32,
+        num_path_array_elements: *mut u32,
+        num_mode_info_array_elements: *mut u32,
+    ) -> i32;
+
+    fn QueryDisplayConfig(
+        flags: u32,
+        num_path_array_elements: *mut u32,
+        path_array: *mut DISPLAYCONFIG_PATH_INFO,
+        num_mode_info_array_elements: *mut u32,
+        mode_info_array: *mut DISPLAYCONFIG_MODE_INFO,
+        current_topology_id: *mut u32,
+    ) -> i32;
+
+    fn GetRawInputDeviceList(
+        p_raw_input_device_list: *mut RAWINPUTDEVICELIST,
+        pui_num_devices: *mut u32,
+        cb_size: u32,
+    ) -> u32;
+
+    fn GetRawInputDeviceInfoW(
+        h_device: *mut c_void,
+        ui_command: u32,
+        p_data: *mut c_void,
+        pcb_size: *mut u32,
+    ) -> u32;
+}
+
+// -----------------------------------------------------------------------------
+// Implementation
+// -----------------------------------------------------------------------------
+
+pub fn detect_gpu_info() -> GpuInfo {
+    // 1. Try DXGI EnumAdapters
+    let dxgi_res = detect_gpu_dxgi();
+
+    // 2. Query driver version from Registry
+    let driver_ver = query_gpu_driver_version();
+
+    match dxgi_res {
+        Ok(mut gpu) => {
+            if !driver_ver.is_empty() {
+                gpu.driver_version = driver_ver;
+            }
+            gpu
+        }
+        Err(_) => GpuInfo {
+            name: "Adaptador de Pantalla de Windows".to_string(),
+            vram_mb: 0,
+            driver_version: if driver_ver.is_empty() {
+                "Controlador Genérico".to_string()
+            } else {
+                driver_ver
+            },
+        },
+    }
+}
+
+fn detect_gpu_dxgi() -> AppResult<GpuInfo> {
+    // IDXGIFactory IID: {7b7166ec-21c7-44ae-b21a-c9ae321ae369}
+    const IID_IDXGI_FACTORY: GUID = GUID {
+        data1: 0x7b7166ec,
+        data2: 0x21c7,
+        data3: 0x44ae,
+        data4: [0xb2, 0x1a, 0xc9, 0xae, 0x32, 0x1a, 0xe3, 0x69],
+    };
+
+    let mut factory_ptr: *mut c_void = ptr::null_mut();
+    let hr = unsafe {
+        let hr1 = CreateDXGIFactory1(&IID_IDXGI_FACTORY, &mut factory_ptr);
+        if hr1 == 0 && !factory_ptr.is_null() {
+            hr1
+        } else {
+            CreateDXGIFactory(&IID_IDXGI_FACTORY, &mut factory_ptr)
+        }
+    };
+
+    if hr != 0 || factory_ptr.is_null() {
+        return Err(AppError::HardwareDiag(format!(
+            "No se pudo crear fábrica DXGI (hr: {hr:#010X})"
+        )));
+    }
+
+    struct FactoryGuard(*mut c_void);
+    impl Drop for FactoryGuard {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    let vtbl = *(self.0 as *mut *mut usize);
+                    let release_fn: unsafe extern "system" fn(*mut c_void) -> u32 =
+                        core::mem::transmute(*vtbl.add(2));
+                    release_fn(self.0);
+                }
+            }
+        }
+    }
+    let _factory_guard = FactoryGuard(factory_ptr);
+
+    // Vtable IDXGIFactory:
+    // Slot 7: EnumAdapters(this, uint Adapter, out IntPtr ppAdapter)
+    let vtbl = unsafe { *(factory_ptr as *mut *mut usize) };
+    let enum_adapters_fn: unsafe extern "system" fn(
+        *mut c_void,
+        u32,
+        *mut *mut c_void,
+    ) -> i32 = unsafe { core::mem::transmute(*vtbl.add(7)) };
+
+    let mut selected_gpu: Option<GpuInfo> = None;
+    let mut adapter_idx = 0u32;
+
+    loop {
+        let mut adapter_ptr: *mut c_void = ptr::null_mut();
+        let a_hr = unsafe { enum_adapters_fn(factory_ptr, adapter_idx, &mut adapter_ptr) };
+        if a_hr != 0 || adapter_ptr.is_null() {
+            break;
+        }
+
+        // Vtable IDXGIAdapter:
+        // Slot 2: Release
+        // Slot 8: GetDesc(this, out DXGI_ADAPTER_DESC pDesc)
+        let a_vtbl = unsafe { *(adapter_ptr as *mut *mut usize) };
+        let get_desc_fn: unsafe extern "system" fn(
+            *mut c_void,
+            *mut DXGI_ADAPTER_DESC,
+        ) -> i32 = unsafe { core::mem::transmute(*a_vtbl.add(8)) };
+        let release_adapter_fn: unsafe extern "system" fn(*mut c_void) -> u32 =
+            unsafe { core::mem::transmute(*a_vtbl.add(2)) };
+
+        let mut desc = DXGI_ADAPTER_DESC {
+            Description: [0u16; 128],
+            VendorId: 0,
+            DeviceId: 0,
+            SubSysId: 0,
+            Revision: 0,
+            DedicatedVideoMemory: 0,
+            DedicatedSystemMemory: 0,
+            SharedSystemMemory: 0,
+            AdapterLuid: LUID::default(),
+        };
+
+        let d_hr = unsafe { get_desc_fn(adapter_ptr, &mut desc) };
+        unsafe {
+            release_adapter_fn(adapter_ptr);
+        }
+
+        if d_hr == 0 {
+            let name = String::from_utf16_lossy(&desc.Description)
+                .trim_matches('\0')
+                .trim()
+                .to_string();
+
+            let vram_mb = (desc.DedicatedVideoMemory / (1024 * 1024)) as u64;
+
+            // Ignore software rendering / Microsoft Basic Render Driver if hardware GPU exists
+            let is_software = name.to_lowercase().contains("basic render")
+                || name.to_lowercase().contains("software");
+
+            let current = GpuInfo {
+                name,
+                vram_mb,
+                driver_version: "Consultando...".to_string(),
+            };
+
+            if selected_gpu.is_none() || (!is_software && current.vram_mb > selected_gpu.as_ref().map(|g| g.vram_mb).unwrap_or(0)) {
+                selected_gpu = Some(current);
+            }
+        }
+
+        adapter_idx += 1;
+    }
+
+    selected_gpu.ok_or_else(|| AppError::HardwareDiag("No se encontró ningún adaptador DXGI compatible".to_string()))
+}
+
+fn query_gpu_driver_version() -> String {
+    use crate::sys::registry::{read_value, RegistryHive, RegistryState};
+
+    const CLASS_BASE: &str = "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}";
+
+    for sub in &["0000", "0001", "0002", "0003"] {
+        let subkey = format!("{CLASS_BASE}\\{sub}");
+        if let Ok(RegistryState::Present(crate::sys::registry::RegistryData::Sz(ver))) =
+            read_value(RegistryHive::HKLM, &subkey, "DriverVersion")
+        {
+            if !ver.trim().is_empty() {
+                return ver;
+            }
+        }
+    }
+
+    String::new()
+}
+
+pub fn detect_monitor_info() -> MonitorInfo {
+    let mut num_paths: u32 = 0;
+    let mut num_modes: u32 = 0;
+
+    let size_res = unsafe {
+        GetDisplayConfigBufferSizes(
+            QDC_ONLY_ACTIVE_PATHS,
+            &mut num_paths,
+            &mut num_modes,
+        )
+    };
+
+    if size_res != 0 || num_paths == 0 || num_modes == 0 {
+        return fallback_monitor_info();
+    }
+
+    let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); num_paths as usize];
+    let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); num_modes as usize];
+
+    let q_res = unsafe {
+        QueryDisplayConfig(
+            QDC_ONLY_ACTIVE_PATHS,
+            &mut num_paths,
+            paths.as_mut_ptr(),
+            &mut num_modes,
+            modes.as_mut_ptr(),
+            ptr::null_mut(),
+        )
+    };
+
+    if q_res != 0 {
+        return fallback_monitor_info();
+    }
+
+    // Inspect active path
+    let first_path = &paths[0];
+    let rr = first_path.targetInfo.refreshRate;
+    let refresh_hz = if rr.Denominator > 0 {
+        let raw = (rr.Numerator as f64) / (rr.Denominator as f64);
+        (raw * 100.0).round() / 100.0
+    } else {
+        60.0
+    };
+
+    let source_idx = first_path.sourceInfo.modeInfoIdx as usize;
+    let resolution = if source_idx < modes.len() && modes[source_idx].infoType == 1 {
+        let src = unsafe { modes[source_idx].mode.sourceMode };
+        format!("{} x {}", src.width, src.height)
+    } else {
+        "1920 x 1080".to_string()
+    };
+
+    // VRR check: Check if all available display modes for this target offer variable frequencies
+    let supports_vrr = check_vrr_support(first_path.targetInfo.id);
+
+    MonitorInfo {
+        resolution,
+        refresh_hz,
+        supports_vrr,
+    }
+}
+
+fn check_vrr_support(_target_id: u32) -> bool {
+    let mut all_paths_cnt: u32 = 0;
+    let mut all_modes_cnt: u32 = 0;
+
+    let sz_res = unsafe {
+        GetDisplayConfigBufferSizes(QDC_ALL_PATHS, &mut all_paths_cnt, &mut all_modes_cnt)
+    };
+
+    if sz_res != 0 || all_paths_cnt == 0 || all_modes_cnt == 0 {
+        return false;
+    }
+
+    let mut all_paths = vec![DISPLAYCONFIG_PATH_INFO::default(); all_paths_cnt as usize];
+    let mut all_modes = vec![DISPLAYCONFIG_MODE_INFO::default(); all_modes_cnt as usize];
+
+    let q_res = unsafe {
+        QueryDisplayConfig(
+            QDC_ALL_PATHS,
+            &mut all_paths_cnt,
+            all_paths.as_mut_ptr(),
+            &mut all_modes_cnt,
+            all_modes.as_mut_ptr(),
+            ptr::null_mut(),
+        )
+    };
+
+    if q_res != 0 {
+        return false;
+    }
+
+    // A display with VRR (G-Sync/FreeSync) or multiple refresh modes will have varied non-standard rational refresh rates
+    let mut distinct_rates = std::collections::HashSet::new();
+    for p in &all_paths {
+        let r = p.targetInfo.refreshRate;
+        if r.Denominator > 0 {
+            let rounded = ((r.Numerator as f64) / (r.Denominator as f64) * 10.0).round() as i64;
+            if rounded > 0 {
+                distinct_rates.insert(rounded);
+            }
+        }
+    }
+
+    distinct_rates.len() > 1
+}
+
+fn fallback_monitor_info() -> MonitorInfo {
+    MonitorInfo {
+        resolution: "1920 x 1080".to_string(),
+        refresh_hz: 60.0,
+        supports_vrr: false,
+    }
+}
+
+pub fn detect_hid_devices() -> (Vec<HidDeviceInfo>, Vec<HidDeviceInfo>) {
+    let mut num_devices: u32 = 0;
+    let cb_size = std::mem::size_of::<RAWINPUTDEVICELIST>() as u32;
+
+    unsafe {
+        GetRawInputDeviceList(ptr::null_mut(), &mut num_devices, cb_size);
+    }
+
+    if num_devices == 0 {
+        return (Vec::new(), Vec::new());
+    }
+
+    let mut raw_list = vec![RAWINPUTDEVICELIST::default(); num_devices as usize];
+    let count = unsafe {
+        GetRawInputDeviceList(raw_list.as_mut_ptr(), &mut num_devices, cb_size)
+    };
+
+    if count == u32::MAX {
+        return (Vec::new(), Vec::new());
+    }
+
+    let mut mice = Vec::new();
+    let mut keyboards = Vec::new();
+
+    let mut seen_paths = std::collections::HashSet::new();
+
+    for dev in raw_list.iter().take(count as usize) {
+        if dev.hDevice.is_null() {
+            continue;
+        }
+
+        let mut name_len: u32 = 0;
+        unsafe {
+            GetRawInputDeviceInfoW(dev.hDevice, RIDI_DEVICENAME, ptr::null_mut(), &mut name_len);
+        }
+
+        if name_len == 0 {
+            continue;
+        }
+
+        let mut name_buf = vec![0u16; name_len as usize];
+        let read_len = unsafe {
+            GetRawInputDeviceInfoW(
+                dev.hDevice,
+                RIDI_DEVICENAME,
+                name_buf.as_mut_ptr() as *mut c_void,
+                &mut name_len,
+            )
+        };
+
+        if read_len == u32::MAX {
+            continue;
+        }
+
+        let path = String::from_utf16_lossy(&name_buf)
+            .trim_matches('\0')
+            .trim()
+            .to_string();
+
+        if path.is_empty() {
+            continue;
+        }
+
+        // Deduplicate
+        let base_id = clean_device_path(&path);
+        if !seen_paths.insert(base_id) {
+            continue;
+        }
+
+        let (vid, pid) = parse_vid_pid(&path);
+        let transport = detect_transport(&path);
+
+        match dev.dwType {
+            RIM_TYPEMOUSE => {
+                let friendly_name = friendly_mouse_name(&path, &vid, &transport);
+                mice.push(HidDeviceInfo {
+                    name: friendly_name,
+                    vid,
+                    pid,
+                    transport,
+                    device_type: "mouse".to_string(),
+                    raw_path: path,
+                });
+            }
+            RIM_TYPEKEYBOARD => {
+                let friendly_name = friendly_keyboard_name(&path, &vid, &transport);
+                keyboards.push(HidDeviceInfo {
+                    name: friendly_name,
+                    vid,
+                    pid,
+                    transport,
+                    device_type: "keyboard".to_string(),
+                    raw_path: path,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    (mice, keyboards)
+}
+
+fn clean_device_path(raw: &str) -> String {
+    // If the path contains collection identifiers (&Col01), strip it to identify the physical device
+    let upper = raw.to_uppercase();
+    if let Some(pos) = upper.find("&COL") {
+        return upper[..pos].to_string();
+    }
+    upper
+}
+
+fn parse_vid_pid(path: &str) -> (String, String) {
+    let upper = path.to_uppercase();
+    let vid = if let Some(pos) = upper.find("VID_") {
+        upper[pos + 4..].chars().take(4).collect()
+    } else {
+        "N/A".to_string()
+    };
+
+    let pid = if let Some(pos) = upper.find("PID_") {
+        upper[pos + 4..].chars().take(4).collect()
+    } else {
+        "N/A".to_string()
+    };
+
+    (vid, pid)
+}
+
+fn detect_transport(path: &str) -> String {
+    let upper = path.to_uppercase();
+    if upper.contains("BTH") || upper.contains("BLUETOOTH") {
+        "Bluetooth".to_string()
+    } else if upper.contains("USB") {
+        "USB".to_string()
+    } else {
+        "HID genérico".to_string()
+    }
+}
+
+fn friendly_mouse_name(path: &str, vid: &str, transport: &str) -> String {
+    let upper = path.to_uppercase();
+    let vendor = match vid {
+        "046D" => "Logitech",
+        "1532" => "Razer",
+        "1B1C" => "Corsair",
+        "1038" => "SteelSeries",
+        "28DA" => "Finalmouse",
+        "2BA2" => "Vaxee",
+        "045E" => "Microsoft",
+        "0B05" => "ASUS ROG",
+        "258A" => "SinoWealth / Pulsar",
+        _ => {
+            if upper.contains("ELAN") {
+                return "Touchpad / Ratón Elan".to_string();
+            } else if upper.contains("SYNAPTICS") || upper.contains("SYN") {
+                return "Touchpad / Ratón Synaptics".to_string();
+            } else {
+                "Ratón"
+            }
+        }
+    };
+
+    if vendor == "Ratón" {
+        format!("Ratón ({transport})")
+    } else {
+        format!("{vendor} Gaming Mouse ({transport})")
+    }
+}
+
+fn friendly_keyboard_name(path: &str, vid: &str, transport: &str) -> String {
+    let upper = path.to_uppercase();
+    if upper.contains("ACPI") {
+        return "Teclado Interno del Sistema (ACPI)".to_string();
+    }
+
+    let vendor = match vid {
+        "046D" => "Logitech",
+        "1532" => "Razer",
+        "1B1C" => "Corsair",
+        "1038" => "SteelSeries",
+        "045E" => "Microsoft",
+        "0B05" => "ASUS",
+        "04F2" => "Chicony",
+        _ => "Teclado",
+    };
+
+    if vendor == "Teclado" {
+        format!("Teclado ({transport})")
+    } else {
+        format!("{vendor} Keyboard ({transport})")
+    }
+}
+
+pub fn get_hardware_diagnostic_info() -> HardwareDiagnosticInfo {
+    let gpu = detect_gpu_info();
+    let monitor = detect_monitor_info();
+    let (mice, keyboards) = detect_hid_devices();
+
+    HardwareDiagnosticInfo {
+        gpu,
+        monitor,
+        mice,
+        keyboards,
+    }
+}
