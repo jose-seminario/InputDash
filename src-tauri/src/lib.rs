@@ -20,6 +20,7 @@ pub struct AppState {
     pub ab_manager: AbSessionManager,
     pub blind_manager: BlindSessionManager,
     pub profile_manager: ProfileManager,
+    pub realtime_monitor: crate::diag::realtime::RealtimeMonitorManager,
 }
 
 impl AppState {
@@ -33,6 +34,7 @@ impl AppState {
             ab_manager: AbSessionManager::new(),
             blind_manager: BlindSessionManager::new(),
             profile_manager: ProfileManager::new(),
+            realtime_monitor: crate::diag::realtime::RealtimeMonitorManager::new(),
         }
     }
 }
@@ -91,6 +93,8 @@ pub fn run() {
             commands::get_timer_resolution,
             commands::start_bufferbloat_analysis,
             commands::export_full_report,
+            commands::start_realtime_monitor,
+            commands::stop_realtime_monitor,
         ])
         .run(tauri::generate_context!())
         .expect("error fatal al iniciar la ventana de Tauri");

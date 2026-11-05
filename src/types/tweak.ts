@@ -518,3 +518,12 @@ export interface ExportResult {
   message: string;
 }
 
+export interface RealtimeLatencyTick {
+  total_ms: number;
+  mouse_ms: number;
+  dpc_ms: number;
+  frametime_ms: number;
+  is_game_active: boolean;
+  timestamp_ms: number;
+}
+

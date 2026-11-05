@@ -25,6 +25,7 @@ import type {
   PresetId,
   PresetOutcome,
   ProcessItemView,
+  RealtimeLatencyTick,
   RevertAllOutcome,
   SimulationItem,
   StructuredBackendError,
@@ -265,6 +266,26 @@ export async function listenToUsbDeviceChanges(
   callback: (msg: string) => void
 ): Promise<() => void> {
   return listen<string>("usb-device-changed", (event) => {
+    callback(event.payload);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Monitor de Latencia en Tiempo Real IPC (Fase 9)
+// ---------------------------------------------------------------------------
+
+export async function ipcStartRealtimeMonitor(): Promise<void> {
+  return invoke("start_realtime_monitor");
+}
+
+export async function ipcStopRealtimeMonitor(): Promise<void> {
+  return invoke("stop_realtime_monitor");
+}
+
+export async function listenToRealtimeLatency(
+  callback: (tick: RealtimeLatencyTick) => void
+): Promise<() => void> {
+  return listen<RealtimeLatencyTick>("realtime-latency-tick", (event) => {
     callback(event.payload);
   });
 }

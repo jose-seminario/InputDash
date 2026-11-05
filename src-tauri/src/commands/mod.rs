@@ -463,3 +463,17 @@ pub fn export_full_report(payload: FullExportPayload) -> AppResult<ExportResult>
     export::export_report(&payload)
 }
 
+// ---------------------------------------------------------------------------
+// Monitor de Latencia en Tiempo Real (Fase 9)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn start_realtime_monitor(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    state.realtime_monitor.start(app)
+}
+
+#[tauri::command]
+pub fn stop_realtime_monitor(state: State<'_, AppState>) -> AppResult<()> {
+    state.realtime_monitor.stop()
+}
+

@@ -5,4 +5,5 @@ pub mod export;
 pub mod frametime;
 pub mod network;
 pub mod polling;
+pub mod realtime;
 pub mod report;

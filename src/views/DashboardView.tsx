@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
 import { useDiagStore } from "../store/useDiagStore";
 import { useTweaksStore } from "../store/useTweaksStore";
-import { ipcStartBufferbloatAnalysis, ipcExportFullReport, listenToUsbDeviceChanges } from "../services/ipc";
-import type { BufferbloatResult, FullExportPayload } from "../types/tweak";
+import {
+  ipcStartBufferbloatAnalysis,
+  ipcExportFullReport,
+  listenToUsbDeviceChanges,
+  ipcStartRealtimeMonitor,
+  ipcStopRealtimeMonitor,
+  listenToRealtimeLatency,
+} from "../services/ipc";
+import type { BufferbloatResult, FullExportPayload, RealtimeLatencyTick } from "../types/tweak";
 
 export function DashboardView() {
   const {
@@ -57,6 +64,38 @@ export function DashboardView() {
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportSuccessMsg, setExportSuccessMsg] = useState<string | null>(null);
   const [usbChangeAlert, setUsbChangeAlert] = useState<string | null>(null);
+  const [isRealtimeRunning, setIsRealtimeRunning] = useState<boolean>(false);
+  const [realtimeTick, setRealtimeTick] = useState<RealtimeLatencyTick | null>(null);
+  const [initialBaselineLatency, setInitialBaselineLatency] = useState<number | null>(null);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listenToRealtimeLatency((tick) => {
+      setRealtimeTick(tick);
+      setInitialBaselineLatency((prev) => (prev === null ? tick.total_ms : prev));
+    })
+      .then((unsub) => {
+        unlisten = unsub;
+      })
+      .catch((err) => {
+        console.warn("No se pudo conectar listener de latencia en tiempo real:", err);
+      });
+
+    return () => {
+      if (unlisten) unlisten();
+      void ipcStopRealtimeMonitor();
+    };
+  }, []);
+
+  const handleToggleRealtime = async () => {
+    if (isRealtimeRunning) {
+      await ipcStopRealtimeMonitor();
+      setIsRealtimeRunning(false);
+    } else {
+      await ipcStartRealtimeMonitor();
+      setIsRealtimeRunning(true);
+    }
+  };
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -175,6 +214,85 @@ export function DashboardView() {
           </button>
         </div>
       )}
+
+      {/* WIDGET FASE 9: MONITOR DE LATENCIA DEL SISTEMA EN TIEMPO REAL */}
+      <section
+        className="dashboard-section"
+        style={{
+          border: "1px solid var(--accent-primary, #3b82f6)",
+          background: "rgba(15, 23, 42, 0.65)",
+          borderRadius: "8px",
+          padding: "16px",
+          marginBottom: "16px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span className="badge badge-applied" style={{ textTransform: "uppercase", fontSize: "11px" }}>
+                Fase 9 · Tiempo Real
+              </span>
+              <span className="meta-mono" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                Latencia Parásita del SO (excluye monitor y red)
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "12px", marginTop: "6px" }}>
+              <h2 style={{ fontSize: "28px", fontWeight: 700, margin: 0, fontFamily: "monospace" }}>
+                Latencia del Sistema:{" "}
+                <span style={{ color: isRealtimeRunning ? "#38bdf8" : "var(--text-secondary)" }}>
+                  {realtimeTick && isRealtimeRunning ? `${realtimeTick.total_ms} ms` : "-- ms"}
+                </span>
+              </h2>
+              {isRealtimeRunning && initialBaselineLatency !== null && realtimeTick && (
+                <span className="badge badge-default" style={{ fontSize: "12px" }}>
+                  Actual: <strong>{realtimeTick.total_ms} ms</strong> | Antes: {initialBaselineLatency} ms
+                  {realtimeTick.total_ms < initialBaselineLatency && (
+                    <span style={{ color: "#4ade80", marginLeft: "4px" }}>
+                      ({Math.round(((realtimeTick.total_ms - initialBaselineLatency) / initialBaselineLatency) * 100)}%)
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", marginTop: "8px", fontSize: "12px", color: "var(--text-secondary)" }}>
+              <span>🖱️ Mouse HID: <strong style={{ color: "var(--text-primary)" }}>{realtimeTick && isRealtimeRunning ? `${realtimeTick.mouse_ms} ms` : "--"}</strong></span>
+              <span>⚙️ DPC / Kernel: <strong style={{ color: "var(--text-primary)" }}>{realtimeTick && isRealtimeRunning ? `${realtimeTick.dpc_ms} ms` : "--"}</strong></span>
+              <span>
+                🎮 Frame Time: <strong style={{ color: "var(--text-primary)" }}>{realtimeTick && isRealtimeRunning ? `${realtimeTick.frametime_ms} ms` : "--"}</strong>
+                <span style={{ marginLeft: "4px", fontSize: "11px", fontStyle: "italic", opacity: 0.85 }}>
+                  ({realtimeTick?.is_game_active ? "Juego 3D Activo" : "DWM Compositor de Escritorio"})
+                </span>
+              </span>
+            </div>
+            {!realtimeTick?.is_game_active && isRealtimeRunning && (
+              <p className="tweak-desc" style={{ margin: "6px 0 0 0", fontSize: "11px", opacity: 0.8 }}>
+                ℹ️ Nota: No se detectó un juego 3D abierto en primer plano; el Frame Time mide la tasa de refresco del compositor de ventanas de Windows (DWM).
+              </p>
+            )}
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {!isRealtimeRunning ? (
+              <button
+                type="button"
+                className="btn btn-primary btn-large"
+                onClick={() => void handleToggleRealtime()}
+              >
+                ▶ Iniciar Monitoreo
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-secondary btn-large"
+                style={{ borderColor: "#ef4444", color: "#f87171" }}
+                onClick={() => void handleToggleRealtime()}
+              >
+                ⏹ Detener Monitoreo
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* SECCIÓN 1: SISTEMA */}
       <section className="dashboard-section">
