@@ -2,7 +2,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::ab::stats::{self, SampleSummary, TTestResult};
-use crate::core::engine::{Engine, MutationOutcome};
+use crate::core::engine::Engine;
 use crate::error::{AppError, AppResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -70,7 +70,7 @@ pub fn revert_tweak(tweak_id: String, state: State<'_, AppState>) -> AppResult<M
 #[tauri::command]
 pub fn revert_all_tweaks(state: State<'_, AppState>) -> AppResult<RevertAllOutcome> {
     let engine = require_engine(&state)?;
-    engine.revert_all_tweaks()
+    engine.revert_all()
 }
 
 #[tauri::command]
@@ -79,8 +79,7 @@ pub fn simulate_tweaks(
     state: State<'_, AppState>,
 ) -> AppResult<Vec<SimulationItem>> {
     let engine = require_engine(&state)?;
-    let refs: Vec<&str> = tweak_ids.iter().map(|s| s.as_str()).collect();
-    engine.simulate_tweaks(&refs)
+    engine.simulate_tweaks(&tweak_ids)
 }
 
 #[tauri::command]
@@ -89,17 +88,15 @@ pub fn simulate_preset(
     state: State<'_, AppState>,
 ) -> AppResult<Vec<SimulationItem>> {
     let engine = require_engine(&state)?;
-    engine.simulate_preset(&preset_id)
+    let ids = Engine::preset_tweak_ids(&preset_id)?;
+    let string_ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+    engine.simulate_tweaks(&string_ids)
 }
 
 #[tauri::command]
 pub fn create_restore_point(state: State<'_, AppState>) -> AppResult<String> {
     let engine = require_engine(&state)?;
-    let outcome = engine.create_manual_restore_point("InputDash Manual Checkpoint")?;
-    Ok(format!(
-        "Punto de restauración procesado: {} (Secuencia #{:?})",
-        outcome.detail, outcome.sequence_number
-    ))
+    engine.create_manual_restore_point()
 }
 
 #[tauri::command]
@@ -114,12 +111,12 @@ pub fn get_change_logs(
     state: State<'_, AppState>,
 ) -> AppResult<Vec<ChangeLogEntry>> {
     let engine = require_engine(&state)?;
-    log::get_recent_logs(engine.db(), limit.unwrap_or(100))
+    log::list_recent_changes(engine.db(), limit.unwrap_or(100) as u32)
 }
 
 #[tauri::command]
 pub fn get_hardware_info() -> AppResult<HardwareDiagnosticInfo> {
-    hardware::get_hardware_diagnostic_info()
+    Ok(hardware::get_hardware_diagnostic_info())
 }
 
 #[tauri::command]
@@ -139,7 +136,7 @@ pub fn get_drivers_info() -> AppResult<DriversInfo> {
 #[tauri::command]
 pub async fn start_network_analysis(host: Option<String>) -> AppResult<NetworkAnalysisResult> {
     tauri::async_runtime::spawn_blocking(move || {
-        network::run_network_analysis(host.as_deref())
+        network::run_network_analysis(host.as_deref().unwrap_or("8.8.8.8"))
     })
     .await
     .map_err(|e| AppError::NetworkAnalysis(format!("Error en tarea de red: {e}")))?
@@ -152,7 +149,7 @@ pub fn get_usb_topology() -> AppResult<UsbTopologyInfo> {
 
 #[tauri::command]
 pub fn get_nic_moderation() -> AppResult<NicModerationInfo> {
-    drivers::get_nic_moderation_info()
+    drivers::get_nic_moderation()
 }
 
 #[tauri::command]

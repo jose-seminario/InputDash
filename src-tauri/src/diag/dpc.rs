@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::diag::etw_common::{
-    stop_stale_session, CloseTrace, EnumDeviceDrivers, EtwSessionGuard,
+    stop_stale_session, EnumDeviceDrivers, EtwSessionGuard,
     GetDeviceDriverBaseNameW, OpenTraceW, ProcessTrace, QueryPerformanceFrequency,
     StartTraceW, TracePropertiesBuffer, EVENT_RECORD, EVENT_TRACE_FLAG_DPC,
     EVENT_TRACE_FLAG_DRIVER, EVENT_TRACE_FLAG_INTERRUPT, EVENT_TRACE_LOGFILEW,

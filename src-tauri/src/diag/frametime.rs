@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use windows::core::GUID;
 
 use crate::diag::etw_common::{
-    stop_stale_session, CloseTrace, EnableTraceEx2, EtwSessionGuard, OpenTraceW,
+    stop_stale_session, EnableTraceEx2, EtwSessionGuard, OpenTraceW,
     ProcessTrace, QueryPerformanceFrequency, StartTraceW, TracePropertiesBuffer,
     EVENT_CONTROL_CODE_ENABLE_PROVIDER, EVENT_RECORD, EVENT_TRACE_LOGFILEW,
     INVALID_PROCESSTRACE_HANDLE, PROCESS_TRACE_MODE_EVENT_RECORD,

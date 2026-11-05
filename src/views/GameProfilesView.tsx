@@ -238,7 +238,6 @@ export function GameProfilesView() {
         ) : (
           profiles.map((prof) => {
             const isActive = prof.runtime_state === "active";
-            const isWaiting = prof.runtime_state === "waiting";
             const isHybridOrX3d = topology?.is_hybrid || topology?.is_x3d;
 
             return (
