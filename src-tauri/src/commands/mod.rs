@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 use crate::ab::blind::{BlindPublicState, BlindResult, BlindSessionManager};
 use crate::ab::session::{AbSession, AbSessionManager};

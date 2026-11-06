@@ -99,7 +99,7 @@ impl AbSessionManager {
         if let Ok(mut guard) = self.current_session.lock() {
             if let Some(session) = guard.take() {
                 if let Some(eng) = engine {
-                    if session.state == AbSessionState::TestRunning
+                    if session.state == AbSessionState::TweakApplied
                         || session.verdict == Some(AbVerdict::Placebo)
                         || session.verdict == Some(AbVerdict::Empeoro)
                     {

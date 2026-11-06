@@ -7,6 +7,7 @@ pub mod error;
 pub mod profiles;
 pub mod sys;
 
+use std::sync::Arc;
 use tauri::Manager;
 use crate::ab::blind::BlindSessionManager;
 use crate::ab::session::AbSessionManager;
