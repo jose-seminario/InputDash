@@ -16,25 +16,31 @@ use crate::db::Database;
 use crate::profiles::manager::ProfileManager;
 
 pub struct AppState {
-    pub engine: Result<Engine, String>,
-    pub ab_manager: AbSessionManager,
-    pub blind_manager: BlindSessionManager,
-    pub profile_manager: ProfileManager,
-    pub realtime_monitor: crate::diag::realtime::RealtimeMonitorManager,
+    pub engine: Result<Arc<Engine>, String>,
+    pub ab_manager: Arc<AbSessionManager>,
+    pub blind_manager: Arc<BlindSessionManager>,
+    pub profile_manager: Arc<ProfileManager>,
+    pub realtime_monitor: Arc<crate::diag::realtime::RealtimeMonitorManager>,
 }
 
 impl AppState {
     fn initialize() -> Self {
-        let init_res = Catalog::load_embedded()
-            .and_then(|catalog| Database::initialize().map(|db| Engine::new(catalog, db)))
-            .map_err(|e| e.to_string());
+        let (init_res, db_opt) = match Catalog::load_embedded()
+            .and_then(|catalog| Database::initialize().map(|db| (catalog, Arc::new(db))))
+        {
+            Ok((catalog, db_arc)) => (
+                Ok(Arc::new(Engine::new(catalog, Arc::clone(&db_arc)))),
+                Some(db_arc),
+            ),
+            Err(e) => (Err(e.to_string()), None),
+        };
 
         Self {
             engine: init_res,
-            ab_manager: AbSessionManager::new(),
-            blind_manager: BlindSessionManager::new(),
-            profile_manager: ProfileManager::new(),
-            realtime_monitor: crate::diag::realtime::RealtimeMonitorManager::new(),
+            ab_manager: Arc::new(AbSessionManager::new()),
+            blind_manager: Arc::new(BlindSessionManager::new()),
+            profile_manager: Arc::new(ProfileManager::new(db_opt)),
+            realtime_monitor: Arc::new(crate::diag::realtime::RealtimeMonitorManager::new()),
         }
     }
 }
@@ -53,6 +59,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_tweaks,
+            commands::list_validated_tweaks,
             commands::apply_tweak,
             commands::apply_preset,
             commands::revert_tweak,

@@ -403,6 +403,10 @@ impl BlindSessionManager {
             )
         };
 
+        if verdict == "mejoro" {
+            let _ = engine.record_ab_validation(&s.tweak_id, "blind_reaction", "mejoro");
+        }
+
         let result = BlindResult {
             tweak_active_in: active_letter,
             state_a_mean: (a_mean * 10.0).round() / 10.0,

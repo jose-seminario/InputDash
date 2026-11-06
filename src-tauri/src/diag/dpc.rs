@@ -31,6 +31,7 @@ pub struct DpcAnalysisResult {
     pub status: String, // "optimo" | "aceptable" | "critico"
     pub status_label: String,
     pub explanation: String,
+    pub samples_us: Vec<f64>,
 }
 
 #[derive(Default)]
@@ -45,6 +46,7 @@ struct DpcCollector {
     drivers: Vec<(u64, String)>,
     accum: HashMap<String, DriverAccum>,
     total_events: u64,
+    samples_us: Vec<f64>,
 }
 
 impl DpcCollector {
@@ -57,7 +59,12 @@ impl DpcCollector {
             Ok(idx) => self.drivers[idx].1.clone(),
             Err(idx) => {
                 if idx > 0 {
-                    self.drivers[idx - 1].1.clone()
+                    // Check upper bound so out-of-range pointers are not falsely attributed
+                    if routine < self.drivers[idx - 1].0 + 64 * 1024 * 1024 {
+                        self.drivers[idx - 1].1.clone()
+                    } else {
+                        "kernel_exec.sys".to_string()
+                    }
                 } else {
                     "kernel_core.sys".to_string()
                 }
@@ -68,6 +75,12 @@ impl DpcCollector {
 
 unsafe extern "system" fn dpc_event_callback(record: *mut EVENT_RECORD) {
     if record.is_null() || (*record).UserContext.is_null() {
+        return;
+    }
+
+    let opcode = (*record).EventHeader.EventDescriptor.Opcode;
+    // NT Kernel Logger opcodes: 66=ThreadedDPC, 67=ISR, 68=DPC, 69=TimerDPC
+    if opcode != 66 && opcode != 67 && opcode != 68 && opcode != 69 {
         return;
     }
 
@@ -93,6 +106,9 @@ unsafe extern "system" fn dpc_event_callback(record: *mut EVENT_RECORD) {
                 entry.total_us += duration_us;
                 entry.count += 1;
                 collector.total_events += 1;
+                if collector.samples_us.len() < 500 {
+                    collector.samples_us.push((duration_us * 10.0).round() / 10.0);
+                }
             }
         }
     }
@@ -151,6 +167,7 @@ pub fn run_dpc_analysis() -> AppResult<DpcAnalysisResult> {
         drivers,
         accum: HashMap::new(),
         total_events: 0,
+        samples_us: Vec::new(),
     });
 
     let kernel_name_wide: Vec<u16> = KERNEL_LOGGER_NAME
@@ -287,5 +304,6 @@ pub fn run_dpc_analysis() -> AppResult<DpcAnalysisResult> {
         status,
         status_label,
         explanation,
+        samples_us: collector.samples_us,
     })
 }

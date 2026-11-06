@@ -63,6 +63,7 @@ export interface TweakStatusView {
   has_backup: boolean;
   backup_original_value: string | null;
   status_error: string | null;
+  is_ab_validated?: boolean;
 }
 
 export interface MutationOutcome {
@@ -274,6 +275,7 @@ export interface FrametimeAnalysisResult {
   status: "optimo" | "aceptable" | "critico";
   status_label: string;
   explanation: string;
+  samples_ms?: number[];
 }
 
 export interface DriverDpcInfo {
@@ -291,6 +293,7 @@ export interface DpcAnalysisResult {
   status: "optimo" | "aceptable" | "critico";
   status_label: string;
   explanation: string;
+  samples_us?: number[];
 }
 
 export interface TelInputData {
@@ -355,6 +358,9 @@ export interface TTestResult {
   degrees_of_freedom: number;
   p_value: number;
   is_significant: boolean;
+  cohens_d?: number | null;
+  mann_whitney_u?: number | null;
+  mann_whitney_p?: number | null;
 }
 
 export interface AbSession {
@@ -511,6 +517,8 @@ export interface FullExportPayload {
   tel?: unknown;
   ab_session?: unknown;
   blind_result?: unknown;
+  frametime?: unknown;
+  dpc?: unknown;
   active_backups?: unknown;
   change_logs?: unknown;
 }

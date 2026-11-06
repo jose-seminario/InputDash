@@ -99,6 +99,12 @@ impl AbSessionManager {
         if let Ok(mut guard) = self.current_session.lock() {
             if let Some(session) = guard.take() {
                 if let Some(eng) = engine {
+                    if session.state == AbSessionState::TestRunning
+                        || session.verdict == Some(AbVerdict::Placebo)
+                        || session.verdict == Some(AbVerdict::Empeoro)
+                    {
+                        let _ = eng.revert_tweak(&session.tweak_id);
+                    }
                     eng.invalidate_session_token(&session.session_token);
                 }
             }
@@ -228,6 +234,10 @@ impl AbSessionManager {
         session.explanation = Some(explanation);
         session.proposed_action = Some(proposed);
         session.state = AbSessionState::Completed;
+
+        if verdict == AbVerdict::Mejoro {
+            let _ = engine.record_ab_validation(&session.tweak_id, &session.metric, "mejoro");
+        }
 
         // Al finalizar la prueba, invalidar el token para que el tweak no pueda modificarse fuera de sesión
         engine.invalidate_session_token(&session.session_token);

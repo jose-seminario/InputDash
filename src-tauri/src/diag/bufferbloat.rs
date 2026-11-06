@@ -21,44 +21,47 @@ pub struct BufferbloatResult {
     pub sqm_recommendation: String,
 }
 
-/// Mide la latencia RTT de conexión TCP hacia un host en puerto 80 (handshake SYN -> SYN/ACK)
-fn probe_tcp_rtt(host: &str, port: u16, timeout: Duration) -> Option<f64> {
-    let addr_str = format!("{host}:{port}");
-    let addrs = addr_str.to_socket_addrs().ok()?;
-    let target_addr = addrs.into_iter().next()?;
-
-    let start = Instant::now();
-    match TcpStream::connect_timeout(&target_addr, timeout) {
-        Ok(stream) => {
-            let elapsed = start.elapsed();
-            let _ = stream.shutdown(Shutdown::Both);
-            Some(elapsed.as_secs_f64() * 1000.0)
-        }
-        Err(_) => None,
+/// Mide la latencia RTT de conexión TCP hacia un host (probando puertos 443 HTTPS, 53 DNS o 80 HTTP)
+fn probe_network_rtt(host: &str, preferred_port: Option<u16>, timeout: Duration) -> Option<f64> {
+    let mut ports = Vec::new();
+    if let Some(p) = preferred_port {
+        ports.push(p);
     }
+    for &p in &[443, 53, 80] {
+        if !ports.contains(&p) {
+            ports.push(p);
+        }
+    }
+
+    for port in ports {
+        let addr_str = format!("{host}:{port}");
+        if let Ok(addrs) = addr_str.to_socket_addrs() {
+            for addr in addrs {
+                let start = Instant::now();
+                if let Ok(stream) = TcpStream::connect_timeout(&addr, timeout) {
+                    let elapsed = start.elapsed();
+                    let _ = stream.shutdown(Shutdown::Both);
+                    return Some((elapsed.as_secs_f64() * 1000.0 * 10.0).round() / 10.0);
+                }
+            }
+        }
+    }
+    None
 }
 
-/// Tarea de saturación de descarga vía peticiones HTTP GET continuas sobre TcpStream nativo
-fn spawn_saturation_worker(
-    target_host: String,
-    target_port: u16,
-    stop_signal: Arc<AtomicBool>,
-) -> thread::JoinHandle<()> {
+/// Tarea de saturación de ancho de banda downstream descargando datos reales desde Cloudflare Speed CDN
+fn spawn_saturation_worker(stop_signal: Arc<AtomicBool>) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        let mut buffer = [0u8; 32768];
-        let request = format!(
-            "GET /100mb.bin HTTP/1.1\r\nHost: {}\r\nUser-Agent: InputDash-Bufferbloat-Bench\r\nConnection: close\r\n\r\n",
-            target_host
-        );
-        let request_bytes = request.as_bytes();
+        let mut buffer = [0u8; 65536];
+        let request = b"GET /__down?bytes=25000000 HTTP/1.1\r\nHost: speed.cloudflare.com\r\nUser-Agent: InputDash\r\nConnection: keep-alive\r\n\r\n";
 
         while !stop_signal.load(Ordering::Relaxed) {
-            let addr_str = format!("{}:{}", target_host, target_port);
+            let addr_str = "speed.cloudflare.com:80";
             if let Ok(addrs) = addr_str.to_socket_addrs() {
                 if let Some(addr) = addrs.into_iter().next() {
-                    if let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(1500)) {
-                        let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
-                        if stream.write_all(request_bytes).is_ok() {
+                    if let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(2000)) {
+                        let _ = stream.set_read_timeout(Some(Duration::from_millis(600)));
+                        if stream.write_all(request).is_ok() {
                             while !stop_signal.load(Ordering::Relaxed) {
                                 match stream.read(&mut buffer) {
                                     Ok(0) => break,
@@ -70,24 +73,24 @@ fn spawn_saturation_worker(
                     }
                 }
             }
-            thread::sleep(Duration::from_millis(50));
+            thread::sleep(Duration::from_millis(25));
         }
     })
 }
 
 /// Ejecuta el test de Bufferbloat científico en dos fases:
 /// Fase A: 12 pings en reposo absoluto.
-/// Fase B: 6 hilos de saturación concurrente durante 6 segundos con pings periódicos.
+/// Fase B: 4 hilos de saturación concurrente durante 6 segundos con pings periódicos.
 pub fn run_bufferbloat_test(probe_host_opt: Option<&str>) -> AppResult<BufferbloatResult> {
-    let probe_host = probe_host_opt.unwrap_or("1.1.1.1");
-    let probe_port = 80u16;
+    let probe_host = probe_host_opt.unwrap_or("1.1.1.1").trim();
+    let host_to_use = if probe_host.is_empty() { "1.1.1.1" } else { probe_host };
 
     // -------------------------------------------------------------------------
     // FASE A: Medición en Reposo (Baseline)
     // -------------------------------------------------------------------------
     let mut baseline_samples = Vec::with_capacity(12);
     for _ in 0..12 {
-        if let Some(rtt) = probe_tcp_rtt(probe_host, probe_port, Duration::from_millis(1500)) {
+        if let Some(rtt) = probe_network_rtt(host_to_use, None, Duration::from_millis(1500)) {
             baseline_samples.push(rtt);
         }
         thread::sleep(Duration::from_millis(120));
@@ -95,7 +98,7 @@ pub fn run_bufferbloat_test(probe_host_opt: Option<&str>) -> AppResult<Bufferblo
 
     if baseline_samples.is_empty() {
         return Err(AppError::NetworkAnalysis(
-            format!("No se pudo establecer conexión de prueba con {probe_host}:80. Verifica tu conexión a Internet.")
+            format!("No se pudo establecer conexión de prueba con {host_to_use}. Verifica tu conexión a Internet o que la dirección sea accesible.")
         ));
     }
 
@@ -115,31 +118,20 @@ pub fn run_bufferbloat_test(probe_host_opt: Option<&str>) -> AppResult<Bufferblo
     let _stop_guard = SaturationStopGuard(Arc::clone(&stop_signal));
     let mut workers = Vec::new();
 
-    // Servidores de descarga para saturación
-    let saturation_hosts = [
-        ("speed.cloudflare.com", 80),
-        ("1.1.1.1", 80),
-        ("1.0.0.1", 80),
-        ("google.com", 80),
-    ];
-
-    for (host, port) in &saturation_hosts {
-        workers.push(spawn_saturation_worker(
-            host.to_string(),
-            *port,
-            Arc::clone(&stop_signal),
-        ));
+    // Iniciar 4 streams paralelos de descarga continua
+    for _ in 0..4 {
+        workers.push(spawn_saturation_worker(Arc::clone(&stop_signal)));
     }
 
-    // Dejar 400ms para que la cola del router comience a saturarse
-    thread::sleep(Duration::from_millis(400));
+    // Dejar 500ms para que la cola del módem/router comience a saturarse
+    thread::sleep(Duration::from_millis(500));
 
     let mut loaded_samples = Vec::new();
     let saturation_duration = Duration::from_millis(5000);
     let start_load = Instant::now();
 
     while start_load.elapsed() < saturation_duration {
-        if let Some(rtt) = probe_tcp_rtt(probe_host, probe_port, Duration::from_millis(2000)) {
+        if let Some(rtt) = probe_network_rtt(host_to_use, None, Duration::from_millis(2000)) {
             loaded_samples.push(rtt);
         }
         thread::sleep(Duration::from_millis(180));
@@ -154,7 +146,7 @@ pub fn run_bufferbloat_test(probe_host_opt: Option<&str>) -> AppResult<Bufferblo
     let loaded_mean = if !loaded_samples.is_empty() {
         loaded_samples.iter().sum::<f64>() / loaded_samples.len() as f64
     } else {
-        // Si todos los pings fallaron bajo carga, el bufferbloat es extremo
+        // Si todas las sondas fallaron bajo carga, el bufferbloat es extremo
         baseline_mean + 150.0
     };
 

@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+﻿use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
 use crate::sys::registry::{RegistryData, RegistryHive, RegistryValueKind};

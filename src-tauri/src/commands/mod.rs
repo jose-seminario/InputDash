@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use tauri::{AppHandle, Manager, State};
 
 use crate::ab::blind::{BlindPublicState, BlindResult, BlindSessionManager};
@@ -24,25 +25,25 @@ use crate::sys::process::{CoreContentionInfo, CpuTopologyInfo, ProcessItemView};
 use crate::sys::timer::TimerResolutionStatus;
 use crate::AppState;
 
-fn require_engine<'a>(state: &'a State<'a, AppState>) -> AppResult<&'a Engine> {
+fn require_engine(state: &State<'_, AppState>) -> AppResult<Arc<Engine>> {
     match &state.engine {
-        Ok(engine) => Ok(engine),
+        Ok(engine) => Ok(Arc::clone(engine)),
         Err(init_err) => Err(AppError::Database(format!(
             "Error de inicialización del motor: {init_err}"
         ))),
     }
 }
 
-fn require_ab_manager<'a>(state: &'a State<'a, AppState>) -> &'a AbSessionManager {
-    &state.ab_manager
+fn require_ab_manager(state: &State<'_, AppState>) -> Arc<AbSessionManager> {
+    Arc::clone(&state.ab_manager)
 }
 
-fn require_blind_manager<'a>(state: &'a State<'a, AppState>) -> &'a BlindSessionManager {
-    &state.blind_manager
+fn require_blind_manager(state: &State<'_, AppState>) -> Arc<BlindSessionManager> {
+    Arc::clone(&state.blind_manager)
 }
 
-fn require_profile_manager<'a>(state: &'a State<'a, AppState>) -> &'a ProfileManager {
-    &state.profile_manager
+fn require_profile_manager(state: &State<'_, AppState>) -> Arc<ProfileManager> {
+    Arc::clone(&state.profile_manager)
 }
 
 #[tauri::command]
@@ -52,47 +53,77 @@ pub fn list_tweaks(state: State<'_, AppState>) -> AppResult<Vec<TweakStatusView>
 }
 
 #[tauri::command]
-pub fn apply_tweak(tweak_id: String, state: State<'_, AppState>) -> AppResult<MutationOutcome> {
+pub fn list_validated_tweaks(state: State<'_, AppState>) -> AppResult<Vec<String>> {
     let engine = require_engine(&state)?;
-    engine.apply_tweak(&tweak_id)
+    Ok(engine.list_validated_tweaks())
 }
 
 #[tauri::command]
-pub fn apply_preset(preset_id: String, state: State<'_, AppState>) -> AppResult<PresetOutcome> {
+pub async fn apply_tweak(tweak_id: String, state: State<'_, AppState>) -> AppResult<MutationOutcome> {
     let engine = require_engine(&state)?;
-    engine.apply_preset(&preset_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        engine.apply_tweak(&tweak_id)
+    })
+    .await
+    .map_err(|e| AppError::Database(format!("Error en tarea de aplicación de tweak: {e}")))?
 }
 
 #[tauri::command]
-pub fn revert_tweak(tweak_id: String, state: State<'_, AppState>) -> AppResult<MutationOutcome> {
+pub async fn apply_preset(preset_id: String, state: State<'_, AppState>) -> AppResult<PresetOutcome> {
     let engine = require_engine(&state)?;
-    engine.revert_tweak(&tweak_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        engine.apply_preset(&preset_id)
+    })
+    .await
+    .map_err(|e| AppError::Database(format!("Error en tarea de aplicación de preset: {e}")))?
 }
 
 #[tauri::command]
-pub fn revert_all_tweaks(state: State<'_, AppState>) -> AppResult<RevertAllOutcome> {
+pub async fn revert_tweak(tweak_id: String, state: State<'_, AppState>) -> AppResult<MutationOutcome> {
     let engine = require_engine(&state)?;
-    engine.revert_all()
+    tauri::async_runtime::spawn_blocking(move || {
+        engine.revert_tweak(&tweak_id)
+    })
+    .await
+    .map_err(|e| AppError::Database(format!("Error en tarea de reversión de tweak: {e}")))?
 }
 
 #[tauri::command]
-pub fn simulate_tweaks(
+pub async fn revert_all_tweaks(state: State<'_, AppState>) -> AppResult<RevertAllOutcome> {
+    let engine = require_engine(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        engine.revert_all()
+    })
+    .await
+    .map_err(|e| AppError::Database(format!("Error en tarea de reversión total: {e}")))?
+}
+
+#[tauri::command]
+pub async fn simulate_tweaks(
     tweak_ids: Vec<String>,
     state: State<'_, AppState>,
 ) -> AppResult<Vec<SimulationItem>> {
     let engine = require_engine(&state)?;
-    engine.simulate_tweaks(&tweak_ids)
+    tauri::async_runtime::spawn_blocking(move || {
+        engine.simulate_tweaks(&tweak_ids)
+    })
+    .await
+    .map_err(|e| AppError::Database(format!("Error en simulación: {e}")))?
 }
 
 #[tauri::command]
-pub fn simulate_preset(
+pub async fn simulate_preset(
     preset_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<Vec<SimulationItem>> {
     let engine = require_engine(&state)?;
-    let ids = Engine::preset_tweak_ids(&preset_id)?;
-    let string_ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
-    engine.simulate_tweaks(&string_ids)
+    tauri::async_runtime::spawn_blocking(move || {
+        let ids = Engine::preset_tweak_ids(&preset_id)?;
+        let string_ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+        engine.simulate_tweaks(&string_ids)
+    })
+    .await
+    .map_err(|e| AppError::Database(format!("Error en simulación de preset: {e}")))?
 }
 
 #[tauri::command]
@@ -132,8 +163,12 @@ pub fn get_change_logs(
 }
 
 #[tauri::command]
-pub fn get_hardware_info() -> AppResult<HardwareDiagnosticInfo> {
-    Ok(hardware::get_hardware_diagnostic_info())
+pub async fn get_hardware_info() -> AppResult<HardwareDiagnosticInfo> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(hardware::get_hardware_diagnostic_info())
+    })
+    .await
+    .map_err(|e| AppError::HardwareDiagnostic(format!("Error al obtener info de hardware: {e}")))?
 }
 
 #[tauri::command]
@@ -160,8 +195,12 @@ pub async fn start_network_analysis(host: Option<String>) -> AppResult<NetworkAn
 }
 
 #[tauri::command]
-pub fn get_usb_topology() -> AppResult<UsbTopologyInfo> {
-    hardware::get_usb_topology_info()
+pub async fn get_usb_topology() -> AppResult<UsbTopologyInfo> {
+    tauri::async_runtime::spawn_blocking(move || {
+        hardware::get_usb_topology_info()
+    })
+    .await
+    .map_err(|e| AppError::HardwareDiagnostic(format!("Error al obtener topología USB: {e}")))?
 }
 
 #[tauri::command]
@@ -197,7 +236,7 @@ pub fn calculate_tel(input_data: TelInputData) -> AppResult<TelReportResult> {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn record_ab_baseline(
+pub async fn record_ab_baseline(
     tweak_id: String,
     tweak_name: String,
     metric: String,
@@ -206,17 +245,25 @@ pub fn record_ab_baseline(
 ) -> AppResult<AbSession> {
     let engine = require_engine(&state)?;
     let ab = require_ab_manager(&state);
-    ab.record_baseline(&tweak_id, &tweak_name, &metric, samples, engine)
+    tauri::async_runtime::spawn_blocking(move || {
+        ab.record_baseline(&tweak_id, &tweak_name, &metric, samples, &engine)
+    })
+    .await
+    .map_err(|e| AppError::RequiresAbTest(format!("Error en registro de línea base: {e}")))?
 }
 
 #[tauri::command]
-pub fn apply_and_evaluate_ab(
+pub async fn apply_and_evaluate_ab(
     samples: Vec<f64>,
     state: State<'_, AppState>,
 ) -> AppResult<AbSession> {
     let engine = require_engine(&state)?;
     let ab = require_ab_manager(&state);
-    ab.apply_and_evaluate(samples, engine)
+    tauri::async_runtime::spawn_blocking(move || {
+        ab.apply_and_evaluate(samples, &engine)
+    })
+    .await
+    .map_err(|e| AppError::RequiresAbTest(format!("Error en evaluación A/B: {e}")))?
 }
 
 #[tauri::command]
@@ -226,10 +273,13 @@ pub fn get_ab_session(state: State<'_, AppState>) -> Option<AbSession> {
 }
 
 #[tauri::command]
-pub fn reset_ab_session(state: State<'_, AppState>) {
+pub async fn reset_ab_session(state: State<'_, AppState>) {
     let engine = require_engine(&state).ok();
     let ab = require_ab_manager(&state);
-    ab.reset(engine);
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        ab.reset(engine.as_deref());
+    })
+    .await;
 }
 
 #[tauri::command]
@@ -266,14 +316,18 @@ pub fn capture_ab_synthetic_samples(count: Option<usize>) -> Vec<f64> {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn start_blind_test(
+pub async fn start_blind_test(
     tweak_id: String,
     tweak_name: String,
     state: State<'_, AppState>,
 ) -> AppResult<BlindPublicState> {
     let engine = require_engine(&state)?;
     let blind = require_blind_manager(&state);
-    blind.start(&tweak_id, &tweak_name, engine)
+    tauri::async_runtime::spawn_blocking(move || {
+        blind.start(&tweak_id, &tweak_name, &engine)
+    })
+    .await
+    .map_err(|e| AppError::RequiresAbTest(format!("Error al iniciar test ciego: {e}")))?
 }
 
 #[tauri::command]
@@ -298,25 +352,203 @@ pub fn record_blind_click(
 }
 
 #[tauri::command]
-pub fn advance_blind_phase(state: State<'_, AppState>) -> AppResult<BlindPublicState> {
+pub async fn advance_blind_phase(state: State<'_, AppState>) -> AppResult<BlindPublicState> {
     let engine = require_engine(&state)?;
     let blind = require_blind_manager(&state);
-    blind.advance_to_state_b(engine)
+    tauri::async_runtime::spawn_blocking(move || {
+        blind.advance_to_state_b(&engine)
+    })
+    .await
+    .map_err(|e| AppError::RequiresAbTest(format!("Error al avanzar fase de test ciego: {e}")))?
 }
 
 #[tauri::command]
-pub fn complete_blind_test(state: State<'_, AppState>) -> AppResult<BlindResult> {
+pub async fn complete_blind_test(state: State<'_, AppState>) -> AppResult<BlindResult> {
     let engine = require_engine(&state)?;
     let blind = require_blind_manager(&state);
-    blind.complete_and_evaluate(engine)
+    tauri::async_runtime::spawn_blocking(move || {
+        blind.complete_and_evaluate(&engine)
+    })
+    .await
+    .map_err(|e| AppError::RequiresAbTest(format!("Error al completar test ciego: {e}")))?
 }
 
 #[tauri::command]
-pub fn cancel_blind_test(state: State<'_, AppState>) -> AppResult<()> {
+pub async fn cancel_blind_test(state: State<'_, AppState>) -> AppResult<()> {
     let engine = require_engine(&state)?;
     let blind = require_blind_manager(&state);
-    blind.cancel(engine)
+    tauri::async_runtime::spawn_blocking(move || {
+        blind.cancel(&engine)
+    })
+    .await
+    .map_err(|e| AppError::RequiresAbTest(format!("Error al cancelar test ciego: {e}")))?
 }
+
+// ---------------------------------------------------------------------------
+// Importación Externa LDAT / Reflex (Etapa 5)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn evaluate_external_ldat(input: ExternalLdatInput) -> AppResult<ExternalLdatResult> {
+    let count_a = input.count_a.unwrap_or(30).max(2);
+    let count_b = input.count_b.unwrap_or(30).max(2);
+
+    let t_test = stats::welch_t_test_from_stats(
+        input.mean_a,
+        input.std_dev_a,
+        count_a,
+        input.mean_b,
+        input.std_dev_b,
+        count_b,
+    )
+    .ok_or_else(|| {
+        AppError::RequiresAbTest("Datos insuficientes para calcular la prueba t de Welch.".to_string())
+    })?;
+
+    let delta_pct = if input.mean_a > 0.0 {
+        ((input.mean_b - input.mean_a) / input.mean_a) * 100.0
+    } else {
+        0.0
+    };
+
+    let (verdict, label, explanation) = if !t_test.is_significant {
+        (
+            "placebo".to_string(),
+            "Sin Efecto Real (Placebo / Ruido Estadístico)".to_string(),
+            format!(
+                "La diferencia entre la medición A ({:.2} ms) y B ({:.2} ms) es de {:.2}%, pero con p = {:.4} (>= 0.05) no existe significancia estadística. No se descarta que la variación sea producto del ruido instrumental.",
+                input.mean_a, input.mean_b, delta_pct.abs(), t_test.p_value
+            ),
+        )
+    } else if delta_pct <= -1.5 {
+        (
+            "mejoro".to_string(),
+            "Mejora Verificada con Significancia Estadística".to_string(),
+            format!(
+                "Reducción estadísticamente significativa de {:.2}% en la latencia (de {:.2} ms a {:.2} ms, p = {:.4} < 0.05, t = {:.2}). El instrumento físico confirma beneficio medible.",
+                delta_pct.abs(), input.mean_a, input.mean_b, t_test.p_value, t_test.t_stat
+            ),
+        )
+    } else if delta_pct >= 1.5 {
+        (
+            "empeoro".to_string(),
+            "Degradación del Rendimiento Confirmada".to_string(),
+            format!(
+                "La latencia aumentó un {:.2}% con significancia estadística (de {:.2} ms a {:.2} ms, p = {:.4} < 0.05). La prueba instrumental desaconseja mantener este tweak.",
+                delta_pct, input.mean_a, input.mean_b, t_test.p_value
+            ),
+        )
+    } else {
+        (
+            "placebo".to_string(),
+            "Diferencia Despreciable (< 1.5%)".to_string(),
+            format!(
+                "Diferencia de solo {:.2}% entre mediciones, dentro del margen de error intrínseco de instrumentos ópticos.",
+                delta_pct
+            ),
+        )
+    };
+
+    Ok(ExternalLdatResult {
+        t_test,
+        delta_pct: (delta_pct * 100.0).round() / 100.0,
+        verdict,
+        verdict_label: label,
+        explanation,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Perfiles de Juego, Topología y Timer Resolution (Etapa 6)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn get_running_processes() -> Vec<ProcessItemView> {
+    crate::sys::process::get_running_processes()
+}
+
+#[tauri::command]
+pub fn get_cpu_topology(state: State<'_, AppState>) -> CpuTopologyInfo {
+    let pm = require_profile_manager(&state);
+    pm.get_cpu_topology()
+}
+
+#[tauri::command]
+pub fn get_core_contention(state: State<'_, AppState>) -> CoreContentionInfo {
+    let pm = require_profile_manager(&state);
+    pm.get_core_contention()
+}
+
+#[tauri::command]
+pub fn get_game_profiles(state: State<'_, AppState>) -> Vec<GameProfile> {
+    let pm = require_profile_manager(&state);
+    pm.get_profiles()
+}
+
+#[tauri::command]
+pub fn toggle_game_profile(
+    profile_id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> AppResult<GameProfile> {
+    let pm = require_profile_manager(&state);
+    pm.toggle_profile(&profile_id, enabled)
+        .map_err(AppError::Database)
+}
+
+#[tauri::command]
+pub fn update_game_profile(
+    profile: GameProfile,
+    state: State<'_, AppState>,
+) -> AppResult<GameProfile> {
+    let pm = require_profile_manager(&state);
+    pm.update_profile(profile)
+        .map_err(AppError::Database)
+}
+
+#[tauri::command]
+pub fn apply_cpu_sets_isolate(pid: u32) -> AppResult<()> {
+    crate::sys::process::set_process_cpu_sets_isolate(pid)
+        .map_err(AppError::Database)
+}
+
+#[tauri::command]
+pub fn get_timer_resolution() -> Option<TimerResolutionStatus> {
+    crate::sys::timer::query_timer_resolution()
+}
+
+// ---------------------------------------------------------------------------
+// Bufferbloat y Exportación de Reporte Completo (Etapa 7)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn start_bufferbloat_analysis(host: Option<String>) -> AppResult<BufferbloatResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        bufferbloat::run_bufferbloat_test(host.as_deref())
+    })
+    .await
+    .map_err(|e| AppError::NetworkAnalysis(format!("Error en tarea de bufferbloat: {e}")))?
+}
+
+#[tauri::command]
+pub fn export_full_report(payload: FullExportPayload) -> AppResult<ExportResult> {
+    export::export_report(&payload)
+}
+
+// ---------------------------------------------------------------------------
+// Monitor de Latencia en Tiempo Real (Fase 9)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn start_realtime_monitor(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    state.realtime_monitor.start(app)
+}
+
+#[tauri::command]
+pub fn stop_realtime_monitor(state: State<'_, AppState>) -> AppResult<()> {
+    state.realtime_monitor.stop()
+}
+
 
 // ---------------------------------------------------------------------------
 // Importación Externa LDAT / Reflex (Etapa 5)

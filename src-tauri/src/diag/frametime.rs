@@ -46,6 +46,7 @@ pub struct FrametimeAnalysisResult {
     pub status: String, // "optimo" | "aceptable" | "critico"
     pub status_label: String,
     pub explanation: String,
+    pub samples_ms: Vec<f64>,
 }
 
 struct FrametimeCollector {
@@ -57,11 +58,18 @@ unsafe extern "system" fn frametime_event_callback(record: *mut EVENT_RECORD) {
         return;
     }
 
+    let id = (*record).EventHeader.EventDescriptor.Id;
+    let opcode = (*record).EventHeader.EventDescriptor.Opcode;
+    // DXGI: Present_Start = 42; DxgKrnl: Present = Opcode 1 or 2
+    if id != 42 && opcode != 1 && opcode != 2 {
+        return;
+    }
+
     let collector = &mut *((*record).UserContext as *mut FrametimeCollector);
     let pid = (*record).EventHeader.ProcessId;
     let ts = (*record).EventHeader.TimeStamp;
 
-    if pid > 0 && ts > 0 {
+    if pid > 4 && ts > 0 {
         collector.presents.entry(pid).or_default().push(ts);
     }
 }
@@ -161,11 +169,32 @@ pub fn run_frametime_analysis() -> AppResult<FrametimeAnalysisResult> {
     // 6. Stop session & wait for worker before reading collector
     guard.stop_and_join();
 
-    // 7. Process timestamps
+    // 7. Process timestamps, prioritizing actual game processes over desktop compositors
+    let procs = crate::sys::process::get_running_processes();
+    let proc_map: HashMap<u32, String> = procs.into_iter().map(|p| (p.pid, p.name.to_lowercase())).collect();
+    let ignored_names = [
+        "dwm.exe",
+        "explorer.exe",
+        "msedgewebview2.exe",
+        "inputdash.exe",
+        "taskmgr.exe",
+        "searchhost.exe",
+        "shellexperiencehost.exe",
+        "startmenuexperiencehost.exe",
+    ];
+
     let best_pid_entry = collector
         .presents
         .iter()
-        .max_by_key(|(_, timestamps)| timestamps.len());
+        .filter(|(pid, _)| {
+            if let Some(name) = proc_map.get(pid) {
+                !ignored_names.iter().any(|ign| name == ign)
+            } else {
+                true
+            }
+        })
+        .max_by_key(|(_, timestamps)| timestamps.len())
+        .or_else(|| collector.presents.iter().max_by_key(|(_, timestamps)| timestamps.len()));
 
     let (active_pid, timestamps) = match best_pid_entry {
         Some((pid, ts)) if ts.len() >= 10 => (*pid, ts),
@@ -193,6 +222,13 @@ pub fn run_frametime_analysis() -> AppResult<FrametimeAnalysisResult> {
             "No se detectaron frames 3D. Abre un juego antes de analizar.".to_string(),
         ));
     }
+
+    let samples_ms: Vec<f64> = if deltas.len() <= 500 {
+        deltas.clone()
+    } else {
+        let step = deltas.len() as f64 / 500.0;
+        (0..500).map(|i| deltas[(i as f64 * step) as usize]).collect()
+    };
 
     let total_frames = deltas.len();
     let sum_ms: f64 = deltas.iter().sum();
@@ -253,5 +289,6 @@ pub fn run_frametime_analysis() -> AppResult<FrametimeAnalysisResult> {
         status,
         status_label,
         explanation,
+        samples_ms,
     })
 }

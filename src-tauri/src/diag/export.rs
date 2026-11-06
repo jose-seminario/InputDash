@@ -15,6 +15,8 @@ pub struct FullExportPayload {
     pub tel: Option<serde_json::Value>,
     pub ab_session: Option<serde_json::Value>,
     pub blind_result: Option<serde_json::Value>,
+    pub frametime: Option<serde_json::Value>,
+    pub dpc: Option<serde_json::Value>,
     pub active_backups: Option<serde_json::Value>,
     pub change_logs: Option<serde_json::Value>,
 }
@@ -49,41 +51,60 @@ pub fn export_report(payload: &FullExportPayload) -> AppResult<ExportResult> {
     let json_file_path = reports_dir.join(format!("{filename_base}.json"));
     let html_file_path = reports_dir.join(format!("{filename_base}.html"));
 
-    // 1. Export JSON
+    // 1. Exportar JSON Completo estructurado
     let json_content = serde_json::to_string_pretty(payload)
-        .map_err(|e| AppError::Database(format!("Error serializando reporte JSON: {e}")))?;
+        .map_err(|e| AppError::Internal(format!("Error serializando JSON de diagnóstico: {e}")))?;
 
-    let mut jf = File::create(&json_file_path)
-        .map_err(|e| AppError::Database(format!("Error creando archivo {}: {e}", json_file_path.display())))?;
-    jf.write_all(json_content.as_bytes())
-        .map_err(|e| AppError::Database(format!("Error escribiendo archivo JSON: {e}")))?;
+    let mut json_file = File::create(&json_file_path)
+        .map_err(|e| AppError::Internal(format!("Error creando archivo JSON en '{}': {e}", json_file_path.display())))?;
+    json_file.write_all(json_content.as_bytes())
+        .map_err(|e| AppError::Internal(format!("Error escribiendo archivo JSON: {e}")))?;
 
-    // 2. Export HTML con estilos CSS embebidos
+    // 2. Exportar HTML Autónomo Dark Theme
     let html_content = generate_html_report(payload, &timestamp_str);
-    let mut hf = File::create(&html_file_path)
-        .map_err(|e| AppError::Database(format!("Error creando archivo {}: {e}", html_file_path.display())))?;
-    hf.write_all(html_content.as_bytes())
-        .map_err(|e| AppError::Database(format!("Error escribiendo archivo HTML: {e}")))?;
+    let mut html_file = File::create(&html_file_path)
+        .map_err(|e| AppError::Internal(format!("Error creando archivo HTML en '{}': {e}", html_file_path.display())))?;
+    html_file.write_all(html_content.as_bytes())
+        .map_err(|e| AppError::Internal(format!("Error escribiendo archivo HTML: {e}")))?;
 
     let json_str = json_file_path.to_string_lossy().to_string();
     let html_str = html_file_path.to_string_lossy().to_string();
 
     Ok(ExportResult {
-        json_path: json_str.clone(),
+        json_path: json_str,
         html_path: html_str.clone(),
         filename_base,
         message: format!("Reporte guardado exitosamente en: {html_str}"),
     })
 }
 
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn format_json_val(val_opt: &Option<serde_json::Value>) -> String {
+    match val_opt {
+        Some(v) => html_escape(&serde_json::to_string_pretty(v).unwrap_or_default()),
+        None => "No disponible".to_string(),
+    }
+}
+
 fn generate_html_report(payload: &FullExportPayload, timestamp: &str) -> String {
-    let hardware_json = payload.hardware.as_ref().map(|v| serde_json::to_string_pretty(v).unwrap_or_default()).unwrap_or_else(|| "No disponible".to_string());
-    let tel_json = payload.tel.as_ref().map(|v| serde_json::to_string_pretty(v).unwrap_or_default()).unwrap_or_else(|| "No disponible".to_string());
-    let network_json = payload.network.as_ref().map(|v| serde_json::to_string_pretty(v).unwrap_or_default()).unwrap_or_else(|| "No disponible".to_string());
-    let bufferbloat_json = payload.bufferbloat.as_ref().map(|v| serde_json::to_string_pretty(v).unwrap_or_default()).unwrap_or_else(|| "No disponible".to_string());
-    let polling_json = payload.polling.as_ref().map(|v| serde_json::to_string_pretty(v).unwrap_or_default()).unwrap_or_else(|| "No disponible".to_string());
-    let ab_json = payload.ab_session.as_ref().map(|v| serde_json::to_string_pretty(v).unwrap_or_default()).unwrap_or_else(|| "No disponible".to_string());
-    let blind_json = payload.blind_result.as_ref().map(|v| serde_json::to_string_pretty(v).unwrap_or_default()).unwrap_or_else(|| "No disponible".to_string());
+    let hardware_json = format_json_val(&payload.hardware);
+    let tel_json = format_json_val(&payload.tel);
+    let network_json = format_json_val(&payload.network);
+    let bufferbloat_json = format_json_val(&payload.bufferbloat);
+    let polling_json = format_json_val(&payload.polling);
+    let ab_json = format_json_val(&payload.ab_session);
+    let blind_json = format_json_val(&payload.blind_result);
+    let frametime_json = format_json_val(&payload.frametime);
+    let dpc_json = format_json_val(&payload.dpc);
+    let backups_json = format_json_val(&payload.active_backups);
+    let logs_json = format_json_val(&payload.change_logs);
 
     format!(
         r#"<!DOCTYPE html>
@@ -94,27 +115,26 @@ fn generate_html_report(payload: &FullExportPayload, timestamp: &str) -> String 
     <title>Reporte de Diagnóstico InputDash - {timestamp}</title>
     <style>
         :root {{
-            --bg: #0b0e14;
-            --panel: #131822;
-            --panel-alt: #1a2230;
-            --border: #263044;
-            --text: #e6edf3;
-            --text-muted: #9aa7b8;
-            --accent: #38bdf8;
-            --accent-green: #3fb950;
-            --accent-orange: #f59e0b;
-            --accent-red: #ef4444;
+            --bg: #070205;
+            --panel: #11050a;
+            --panel-alt: #1a0810;
+            --border: rgba(255, 26, 64, 0.35);
+            --text: #ffffff;
+            --text-muted: #a3a3b5;
+            --accent: #ff1a40;
+            --accent-green: #00ff88;
+            --accent-orange: #ffaa00;
         }}
         body {{
             background: var(--bg);
             color: var(--text);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: Consolas, "Courier New", monospace, -apple-system, sans-serif;
             line-height: 1.5;
             margin: 0;
             padding: 30px 20px;
         }}
         .container {{
-            max-width: 1000px;
+            max-width: 1050px;
             margin: 0 auto;
         }}
         header {{
@@ -128,61 +148,58 @@ fn generate_html_report(payload: &FullExportPayload, timestamp: &str) -> String 
             gap: 16px;
         }}
         h1 {{
-            margin: 0 0 6px;
-            font-size: 28px;
+            font-size: 24px;
+            margin: 0 0 6px 0;
             color: #ffffff;
-            letter-spacing: -0.5px;
+            letter-spacing: 1.5px;
+            text-shadow: 0 0 12px rgba(255, 26, 64, 0.6);
         }}
         .subtitle {{
             color: var(--text-muted);
-            font-size: 14px;
             margin: 0;
+            font-size: 13px;
         }}
         .badge {{
-            display: inline-block;
-            background: rgba(56, 189, 248, 0.15);
+            background: rgba(255, 26, 64, 0.15);
             color: var(--accent);
-            border: 1px solid rgba(56, 189, 248, 0.3);
-            padding: 4px 12px;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 600;
+            border: 1px solid var(--border);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-weight: 700;
+            font-size: 12px;
         }}
         .section {{
             background: var(--panel);
             border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 22px;
+            border-radius: 6px;
+            padding: 18px 22px;
             margin-bottom: 24px;
         }}
-        .section-header {{
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 12px;
-            margin-bottom: 16px;
-        }}
         .section-header h2 {{
-            margin: 0;
-            font-size: 18px;
-            color: #ffffff;
+            margin: 0 0 12px 0;
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--accent);
+            letter-spacing: 1px;
+            text-transform: uppercase;
         }}
         pre {{
             background: var(--panel-alt);
-            border: 1px solid var(--border);
-            border-radius: 6px;
+            border: 1px solid rgba(255, 26, 64, 0.18);
+            border-radius: 4px;
             padding: 14px;
             overflow-x: auto;
-            font-family: Consolas, "Courier New", monospace;
-            font-size: 12.5px;
-            color: #c9d1d9;
-            max-height: 380px;
+            margin: 0;
+        }}
+        code {{
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            color: #f1f5f9;
         }}
         footer {{
             text-align: center;
+            font-size: 12px;
             color: var(--text-muted);
-            font-size: 12.5px;
             margin-top: 40px;
             padding-top: 20px;
             border-top: 1px solid var(--border);
@@ -193,11 +210,11 @@ fn generate_html_report(payload: &FullExportPayload, timestamp: &str) -> String 
     <div class="container">
         <header>
             <div>
-                <h1>InputDash · Reporte Científico de Latencia</h1>
+                <h1>INPUTDASH // REPORTE CIENTÍFICO DE LATENCIA</h1>
                 <p class="subtitle">Medición y optimización 100% nativa de input lag en Windows 10/11</p>
             </div>
             <div>
-                <span class="badge">Fecha: {timestamp}</span>
+                <span class="badge">TIMESTAMP: {timestamp}</span>
             </div>
         </header>
 
@@ -243,12 +260,37 @@ fn generate_html_report(payload: &FullExportPayload, timestamp: &str) -> String 
             <pre><code>A/B Estándar:
 {ab_json}
 
-Test Ciego (Double-Blind 30 clicks):
+Test Ciego (Double-Blind):
 {blind_json}</code></pre>
         </div>
 
+        <div class="section">
+            <div class="section-header">
+                <h2>7. Telemetría de Fotogramas 3D (ETW Present Frames)</h2>
+            </div>
+            <pre><code>{frametime_json}</code></pre>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h2>8. Latencia DPC/ISR del Kernel y Controladores (.sys)</h2>
+            </div>
+            <pre><code>{dpc_json}</code></pre>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h2>9. Snapshots Atómicos de Seguridad y Registro Transaccional</h2>
+            </div>
+            <pre><code>Backups Activos:
+{backups_json}
+
+Historial de Cambios (SQLite):
+{logs_json}</code></pre>
+        </div>
+
         <footer>
-            Generado automáticamente por InputDash · Sin inyección de procesos · 100% APIs Nativas de Windows
+            Generado automáticamente por InputDash · Sin inyección de procesos · 100% APIs Nativas Win32/Kernel
         </footer>
     </div>
 </body>

@@ -62,6 +62,10 @@ export async function ipcListTweaks(): Promise<TweakStatusView[]> {
   return invoke<TweakStatusView[]>("list_tweaks");
 }
 
+export async function ipcListValidatedTweaks(): Promise<string[]> {
+  return invoke<string[]>("list_validated_tweaks");
+}
+
 export async function ipcApplyTweak(tweakId: string): Promise<MutationOutcome> {
   return invoke<MutationOutcome>("apply_tweak", { tweakId });
 }

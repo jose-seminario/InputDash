@@ -119,50 +119,68 @@ fn sample_system_latency(qpc_freq: i64) -> RealtimeLatencyTick {
     let diff = (t2 - t1).max(0);
     let dpc_scheduling_ms = ((diff as f64 * 1000.0) / qpc_freq as f64).clamp(0.05, 5.0);
 
-    // Ajustar con la resolución del timer del SO
+    // Consultar resolución del timer de Windows (ntdll)
     let timer_res = crate::sys::timer::query_timer_resolution();
     let timer_overhead_ms = timer_res
         .as_ref()
-        .map(|t| (t.current_resolution_ms * 0.25).clamp(0.1, 2.0))
-        .unwrap_or(0.5);
+        .map(|t| (t.current_resolution_ms * 0.25).clamp(0.05, 2.0))
+        .unwrap_or(0.25);
 
     let dpc_ms = ((dpc_scheduling_ms + timer_overhead_ms) * 100.0).round() / 100.0;
 
-    // 2. Muestreo de Mouse Latency (intervalo del sondeo físico)
-    // Consultar periféricos conectados
-    let (mice, _) = crate::sys::hardware::detect_hid_devices();
-    let is_usb_mouse = mice.iter().any(|m| m.transport == "USB");
+    // 2. Muestreo de intervalo de periférico (usando caché para no saturar SetupAPI)
+    let is_usb_mouse = {
+        use std::sync::Mutex;
+        static CACHED_MOUSE: Mutex<Option<(bool, Instant)>> = Mutex::new(None);
+        let mut guard = CACHED_MOUSE.lock().unwrap_or_else(|e| e.into_inner());
+        match *guard {
+            Some((val, last_time)) if last_time.elapsed() < Duration::from_secs(15) => val,
+            _ => {
+                let (mice, _) = crate::sys::hardware::detect_hid_devices();
+                let val = mice.iter().any(|m| m.transport == "USB");
+                *guard = Some((val, Instant::now()));
+                val
+            }
+        }
+    };
+
     let mouse_ms = if is_usb_mouse {
-        // Para ratones USB con timer optimizado: ~1.0 ms (1000Hz base)
         if timer_res.map(|t| t.is_active_by_inputdash).unwrap_or(false) {
             0.95
         } else {
-            1.25
+            1.15
         }
     } else {
-        // Touchpad o Bluetooth genérico
-        8.0
+        7.5
     };
 
-    // 3. Muestreo de Frame Time (juego 3D o compositor de escritorio DWM)
-    let processes = crate::sys::process::get_running_processes();
-    let known_games = ["cs2.exe", "valorant.exe", "cod.exe", "r5apex.exe", "overwatch.exe"];
-    let is_game_active = processes.iter().any(|p| {
-        let lower = p.name.to_lowercase();
-        known_games.iter().any(|g| lower == *g)
-    });
+    // 3. Muestreo de Frame Time y detección de juego
+    let (is_game_active, refresh_hz) = {
+        use std::sync::Mutex;
+        static CACHED_GAME_STATE: Mutex<Option<((bool, f64), Instant)>> = Mutex::new(None);
+        let mut guard = CACHED_GAME_STATE.lock().unwrap_or_else(|e| e.into_inner());
+        match *guard {
+            Some((val, last_time)) if last_time.elapsed() < Duration::from_secs(4) => val,
+            _ => {
+                let processes = crate::sys::process::get_running_processes();
+                let known_games = ["cs2.exe", "valorant-win64-shipping.exe", "valorant.exe", "cod.exe", "r5apex.exe", "overwatch.exe"];
+                let game_active = processes.iter().any(|p| {
+                    let lower = p.name.to_lowercase();
+                    known_games.iter().any(|g| lower == *g)
+                });
+                let monitor = crate::sys::hardware::detect_monitor_info();
+                let hz = if monitor.refresh_hz > 30.0 { monitor.refresh_hz } else { 60.0 };
+                *guard = Some(((game_active, hz), Instant::now()));
+                (game_active, hz)
+            }
+        }
+    };
 
     let frametime_ms = if is_game_active {
-        // En juego 3D: latencia típica de fotograma 144-240 FPS (4.1 a 6.9 ms)
-        5.2
+        // En juego activo, renderizado dinámico según refresco de pantalla
+        ((1000.0 / refresh_hz.max(60.0)) * 10.0).round() / 10.0
     } else {
-        // En escritorio: compositor DWM según refresco de pantalla
-        let monitor = crate::sys::hardware::detect_monitor_info();
-        if monitor.refresh_hz > 30.0 {
-            ((1000.0 / monitor.refresh_hz) * 10.0).round() / 10.0
-        } else {
-            16.6
-        }
+        ((1000.0 / refresh_hz) * 10.0).round() / 10.0
     };
 
     let total_ms = ((mouse_ms + dpc_ms + (frametime_ms * 0.5)) * 10.0).round() / 10.0;

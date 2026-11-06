@@ -638,7 +638,7 @@ pub fn detect_monitor_info() -> MonitorInfo {
     }
 }
 
-fn check_vrr_support(_target_id: u32) -> bool {
+fn check_vrr_support(target_id: u32) -> bool {
     let mut all_paths_cnt: u32 = 0;
     let mut all_modes_cnt: u32 = 0;
 
@@ -668,18 +668,28 @@ fn check_vrr_support(_target_id: u32) -> bool {
         return false;
     }
 
-    let mut distinct_rates = HashSet::new();
+    let mut rates = Vec::new();
     for p in &all_paths {
-        let r = p.targetInfo.refreshRate;
-        if r.Denominator > 0 {
-            let rounded = ((r.Numerator as f64) / (r.Denominator as f64) * 10.0).round() as i64;
-            if rounded > 0 {
-                distinct_rates.insert(rounded);
+        if target_id == 0 || p.targetInfo.id == target_id {
+            let r = p.targetInfo.refreshRate;
+            if r.Denominator > 0 {
+                let hz = (r.Numerator as f64) / (r.Denominator as f64);
+                if hz > 10.0 {
+                    rates.push(hz);
+                }
             }
         }
     }
 
-    distinct_rates.len() > 1
+    if rates.len() < 2 {
+        return false;
+    }
+
+    let min_hz = rates.iter().copied().fold(f64::INFINITY, f64::min);
+    let max_hz = rates.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+
+    // True VRR / FreeSync / G-SYNC displays span a wide adaptive range (e.g. 48 Hz to 144+ Hz)
+    (max_hz - min_hz) >= 20.0
 }
 
 fn fallback_monitor_info() -> MonitorInfo {
@@ -931,7 +941,21 @@ fn detect_usb_port_speed_and_recommendation(
 
     let mut resolved_speed = "USB (No determinado)".to_string();
     let mut is_superspeed = false;
-    let mut is_high_or_full_speed = false;
+    let mut is_high_speed = false;
+    let mut is_full_speed = false;
+
+    let (target_vid, target_pid) = {
+        let upper = path.to_uppercase();
+        let vid = upper.find("VID_").and_then(|i| {
+            let s: String = upper[i + 4..].chars().take(4).collect();
+            u16::from_str_radix(&s, 16).ok()
+        }).unwrap_or(0);
+        let pid = upper.find("PID_").and_then(|i| {
+            let s: String = upper[i + 4..].chars().take(4).collect();
+            u16::from_str_radix(&s, 16).ok()
+        }).unwrap_or(0);
+        (vid, pid)
+    };
 
     let mut clean_id = path.trim();
     if let Some(stripped) = clean_id.strip_prefix("\\\\?\\") {
@@ -1002,40 +1026,6 @@ fn detect_usb_port_speed_and_recommendation(
 
             if !h_hub.is_null() && h_hub != (-1isize as *mut c_void) {
                 for port_idx in 1..=32 {
-                    let mut info_v2 = USB_NODE_CONNECTION_INFORMATION_EX_V2 {
-                        ConnectionIndex: port_idx,
-                        Length: std::mem::size_of::<USB_NODE_CONNECTION_INFORMATION_EX_V2>() as u32,
-                        SupportedUsbProtocols: USB_PROTOCOLS { ul: 0 },
-                        Flags: USB_NODE_CONNECTION_INFORMATION_EX_V2_FLAGS { ul: 0 },
-                    };
-                    let mut bytes_ret = 0u32;
-                    let ok_v2 = unsafe {
-                        DeviceIoControl(
-                            h_hub,
-                            IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX_V2,
-                            &info_v2 as *const _ as *const c_void,
-                            std::mem::size_of::<USB_NODE_CONNECTION_INFORMATION_EX_V2>() as u32,
-                            &mut info_v2 as *mut _ as *mut c_void,
-                            std::mem::size_of::<USB_NODE_CONNECTION_INFORMATION_EX_V2>() as u32,
-                            &mut bytes_ret,
-                            ptr::null_mut(),
-                        )
-                    };
-
-                    if ok_v2 != 0 {
-                        if (info_v2.SupportedUsbProtocols.ul & (1 << 2)) != 0 {
-                            resolved_speed = "USB 3.0 (SuperSpeed)".to_string();
-                            is_superspeed = true;
-                            ioctl_success = true;
-                            break;
-                        } else if (info_v2.SupportedUsbProtocols.ul & (1 << 1)) != 0 {
-                            resolved_speed = "USB 2.0 (High Speed)".to_string();
-                            is_high_or_full_speed = true;
-                            ioctl_success = true;
-                            break;
-                        }
-                    }
-
                     let mut info_ex = USB_NODE_CONNECTION_INFORMATION_EX {
                         ConnectionIndex: port_idx,
                         DeviceDescriptor: USB_DEVICE_DESCRIPTOR::default(),
@@ -1046,6 +1036,7 @@ fn detect_usb_port_speed_and_recommendation(
                         NumberOfOpenPipes: 0,
                         ConnectionStatus: 0,
                     };
+                    let mut bytes_ret = 0u32;
                     let ok_ex = unsafe {
                         DeviceIoControl(
                             h_hub,
@@ -1060,26 +1051,35 @@ fn detect_usb_port_speed_and_recommendation(
                     };
 
                     if ok_ex != 0 && info_ex.ConnectionStatus == 1 {
-                        match info_ex.Speed {
-                            3 | 4 => {
-                                resolved_speed = "USB 3.0 (SuperSpeed)".to_string();
-                                is_superspeed = true;
-                                ioctl_success = true;
-                                break;
+                        let matches_device = if target_vid > 0 && target_pid > 0 {
+                            info_ex.DeviceDescriptor.idVendor == target_vid
+                                && info_ex.DeviceDescriptor.idProduct == target_pid
+                        } else {
+                            true
+                        };
+
+                        if matches_device {
+                            match info_ex.Speed {
+                                3 | 4 => {
+                                    resolved_speed = "USB 3.0+ (SuperSpeed)".to_string();
+                                    is_superspeed = true;
+                                    ioctl_success = true;
+                                    break;
+                                }
+                                2 => {
+                                    resolved_speed = "USB 2.0 (High-Speed)".to_string();
+                                    is_high_speed = true;
+                                    ioctl_success = true;
+                                    break;
+                                }
+                                1 => {
+                                    resolved_speed = "USB 1.1 (Full-Speed)".to_string();
+                                    is_full_speed = true;
+                                    ioctl_success = true;
+                                    break;
+                                }
+                                _ => {}
                             }
-                            2 => {
-                                resolved_speed = "USB 2.0 (High Speed)".to_string();
-                                is_high_or_full_speed = true;
-                                ioctl_success = true;
-                                break;
-                            }
-                            1 => {
-                                resolved_speed = "USB 1.1 (Full Speed)".to_string();
-                                is_high_or_full_speed = true;
-                                ioctl_success = true;
-                                break;
-                            }
-                            _ => {}
                         }
                     }
                 }
@@ -1095,24 +1095,22 @@ fn detect_usb_port_speed_and_recommendation(
                 resolved_speed = "USB 3.0 (SuperSpeed)".to_string();
                 is_superspeed = true;
             } else if combined.contains("ROOT_HUB20") || combined.contains("USB2") || combined.contains("EHCI") {
-                resolved_speed = "USB 2.0 (High Speed)".to_string();
-                is_high_or_full_speed = true;
+                resolved_speed = "USB 2.0 (High-Speed)".to_string();
+                is_high_speed = true;
             } else if combined.contains("HUB") || combined.contains("USB") {
-                resolved_speed = "USB 2.0 (High Speed)".to_string();
-                is_high_or_full_speed = true;
+                resolved_speed = "USB 2.0 (High-Speed)".to_string();
+                is_high_speed = true;
             }
         }
     }
 
     let recommendation = if device_type == "mouse" {
-        if is_high_or_full_speed {
-            Some("⚠️ Tu ratón está en un puerto USB 2.0 (High Speed). Para evitar cuellos de botella con ratones de 1000 Hz o superior, conéctalo a un puerto USB 3.0 (SuperSpeed) trasero, directo a la placa base.".to_string())
-        } else if is_superspeed {
-            if has_audio_contention {
-                Some("⚠️ Tu ratón está en un puerto USB 3.0, pero comparte controlador raíz con un dispositivo de audio. Muévelo a otro puerto directo de la placa base para evitar jitter.".to_string())
-            } else {
-                Some("✅ Tu ratón está en un puerto USB 3.0 dedicado. Configuración óptima.".to_string())
-            }
+        if is_full_speed {
+            Some("⚠️ Ratón operando en modo USB 1.1 (Full-Speed a 12 Mbps). Conéctalo a un puerto USB 2.0/3.0 nativo del panel trasero para soportar 1000 - 8000 Hz.".to_string())
+        } else if has_audio_contention {
+            Some("⚠️ Tu ratón comparte concentrador USB con un dispositivo de audio o cámara. Muévelo a un puerto directo del panel trasero para evitar micro-jitter.".to_string())
+        } else if is_superspeed || is_high_speed {
+            Some("✅ Conexión USB óptima para alta frecuencia de sondeo (1000 - 8000 Hz).".to_string())
         } else {
             None
         }

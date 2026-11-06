@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useDiagStore } from "../store/useDiagStore";
 import { useTweaksStore } from "../store/useTweaksStore";
 import {
+  formatIpcError,
   ipcStartBufferbloatAnalysis,
   ipcExportFullReport,
   listenToUsbDeviceChanges,
@@ -137,7 +138,7 @@ export function DashboardView() {
       const res = await ipcStartBufferbloatAnalysis(targetHost.trim() || undefined);
       setBufferbloatResult(res);
     } catch (err) {
-      setBufferbloatError(String(err));
+      setBufferbloatError(formatIpcError(err).message);
     } finally {
       setIsBufferbloatAnalyzing(false);
     }
@@ -152,6 +153,8 @@ export function DashboardView() {
         network: networkResult ?? undefined,
         bufferbloat: bufferbloatResult ?? undefined,
         polling: pollingResult ?? undefined,
+        frametime: frametimeResult ?? undefined,
+        dpc: dpcResult ?? undefined,
         tel: telReport ?? undefined,
         ab_session: abSession ?? undefined,
         active_backups: backups ?? undefined,
@@ -160,7 +163,7 @@ export function DashboardView() {
       const res = await ipcExportFullReport(payload);
       setExportSuccessMsg(res.message);
     } catch (err) {
-      setBufferbloatError(String(err));
+      setBufferbloatError(formatIpcError(err).message);
     } finally {
       setIsExporting(false);
     }

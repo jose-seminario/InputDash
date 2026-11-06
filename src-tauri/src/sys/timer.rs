@@ -28,7 +28,7 @@ pub struct TimerResolutionStatus {
 /// Consulta la resolución actual del temporizador global en ntdll
 pub fn query_timer_resolution() -> Option<TimerResolutionStatus> {
     unsafe {
-        let ntdll = LoadLibraryExW(w!("ntdll.dll"), None, LOAD_LIBRARY_SEARCH_SYSTEM32).ok()?;
+        let ntdll = windows::Win32::System::LibraryLoader::GetModuleHandleW(windows::core::w!("ntdll.dll")).ok()?;
         let query_proc = GetProcAddress(ntdll, windows::core::s!("NtQueryTimerResolution"))?;
         let query_fn: NtQueryTimerResolutionFn = std::mem::transmute(query_proc);
 

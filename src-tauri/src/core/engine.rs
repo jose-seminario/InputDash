@@ -22,6 +22,7 @@ pub struct TweakStatusView {
     pub has_backup: bool,
     pub backup_original_value: Option<String>,
     pub status_error: Option<String>,
+    pub is_ab_validated: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,19 +69,31 @@ pub struct SimulationItem {
 
 pub struct Engine {
     catalog: Catalog,
-    db: Database,
+    db: Arc<Database>,
     restore_points: RestorePointManager,
     active_tokens: std::sync::Mutex<HashSet<String>>,
 }
 
 impl Engine {
-    pub fn new(catalog: Catalog, db: Database) -> Self {
+    pub fn new(catalog: Catalog, db: Arc<Database>) -> Self {
         Self {
             catalog,
             db,
             restore_points: RestorePointManager::new(),
             active_tokens: std::sync::Mutex::new(HashSet::new()),
         }
+    }
+
+    pub fn db(&self) -> Arc<Database> {
+        Arc::clone(&self.db)
+    }
+
+    pub fn record_ab_validation(&self, tweak_id: &str, metric: &str, verdict: &str) -> AppResult<()> {
+        self.db.record_ab_validation(tweak_id, metric, verdict)
+    }
+
+    pub fn list_validated_tweaks(&self) -> AppResult<Vec<String>> {
+        self.db.list_validated_tweaks()
     }
 
     pub fn register_session_token(&self, token: &str) {
@@ -152,6 +165,19 @@ impl Engine {
         let backup_info = backup::load_snapshot(&backups_dir, &tweak.id).ok().flatten();
         let target_summary = tweak.target_summary();
         let expected_value_display = tweak.target_expected_display();
+        let is_ab_validated = self.db.is_tweak_ab_validated(&tweak.id).unwrap_or(false);
+
+        let make_view = |current_os_value: String, is_applied: bool, status_error: Option<String>| TweakStatusView {
+            definition: tweak.clone(),
+            target_summary: target_summary.clone(),
+            expected_value_display: expected_value_display.clone(),
+            current_os_value,
+            is_applied,
+            has_backup: backup_info.is_some(),
+            backup_original_value: backup_info.as_ref().map(|b| b.payload.display_previous()),
+            status_error,
+            is_ab_validated,
+        };
 
         match &tweak.target {
             TweakTarget::Registry {
@@ -169,17 +195,7 @@ impl Engine {
                     match from_backup.or_else(|| resolve_registry_subkey(ruta).ok()) {
                         Some(resolved) => resolved,
                         None => {
-                            return TweakStatusView {
-                                definition: tweak.clone(),
-                                target_summary,
-                                expected_value_display,
-                                current_os_value: "Sin adaptador de red activo".to_string(),
-                                is_applied: false,
-                                has_backup: backup_info.is_some(),
-                                backup_original_value: backup_info
-                                    .map(|b| b.payload.display_previous()),
-                                status_error: None,
-                            };
+                            return make_view("Sin adaptador de red activo".to_string(), false, None);
                         }
                     }
                 } else {
@@ -196,40 +212,11 @@ impl Engine {
                     {
                         Ok(os_state) => {
                             let is_applied = os_state == RegistryState::Present(expected_data);
-                            TweakStatusView {
-                                definition: tweak.clone(),
-                                target_summary,
-                                expected_value_display,
-                                current_os_value: os_state.display_human(),
-                                is_applied,
-                                has_backup: backup_info.is_some(),
-                                backup_original_value: backup_info
-                                    .map(|b| b.payload.display_previous()),
-                                status_error: None,
-                            }
+                            make_view(os_state.display_human(), is_applied, None)
                         }
-                        Err(err) => TweakStatusView {
-                            definition: tweak.clone(),
-                            target_summary,
-                            expected_value_display,
-                            current_os_value: "Error de lectura".to_string(),
-                            is_applied: false,
-                            has_backup: backup_info.is_some(),
-                            backup_original_value: backup_info
-                                .map(|b| b.payload.display_previous()),
-                            status_error: Some(err.to_string()),
-                        },
+                        Err(err) => make_view("Error de lectura".to_string(), false, Some(err.to_string())),
                     },
-                    Err(err) => TweakStatusView {
-                        definition: tweak.clone(),
-                        target_summary,
-                        expected_value_display,
-                        current_os_value: "Definición inválida".to_string(),
-                        is_applied: false,
-                        has_backup: backup_info.is_some(),
-                        backup_original_value: backup_info.map(|b| b.payload.display_previous()),
-                        status_error: Some(err.to_string()),
-                    },
+                    Err(err) => make_view("Definición inválida".to_string(), false, Some(err.to_string())),
                 }
             }
             TweakTarget::PowerPlan { guid } => {
@@ -249,30 +236,17 @@ impl Engine {
                             })
                             .unwrap_or(false);
 
-                        TweakStatusView {
-                            definition: tweak.clone(),
-                            target_summary,
-                            expected_value_display,
-                            current_os_value: format!("{} ({})", active.friendly_name, active.guid),
-                            is_applied: matches_template || matches_dup,
-                            has_backup: backup_info.is_some(),
-                            backup_original_value: backup_info
-                                .map(|b| b.payload.display_previous()),
-                            status_error: None,
-                        }
+                        make_view(
+                            format!("{} ({})", active.friendly_name, active.guid),
+                            matches_template || matches_dup,
+                            None,
+                        )
                     }
-                    None => TweakStatusView {
-                        definition: tweak.clone(),
-                        target_summary,
-                        expected_value_display,
-                        current_os_value: "No disponible".to_string(),
-                        is_applied: false,
-                        has_backup: backup_info.is_some(),
-                        backup_original_value: backup_info.map(|b| b.payload.display_previous()),
-                        status_error: Some(
-                            "No se pudo consultar el plan activo vía PowrProf".to_string(),
-                        ),
-                    },
+                    None => make_view(
+                        "No disponible".to_string(),
+                        false,
+                        Some("No se pudo consultar el plan activo vía PowrProf".to_string()),
+                    ),
                 }
             }
             TweakTarget::PowerSetting {
@@ -284,51 +258,18 @@ impl Engine {
                 Ok(indices) => {
                     let is_applied =
                         indices.ac_index == *ac_index && indices.dc_index == *dc_index;
-                    TweakStatusView {
-                        definition: tweak.clone(),
-                        target_summary,
-                        expected_value_display,
-                        current_os_value: indices.display_human(),
-                        is_applied,
-                        has_backup: backup_info.is_some(),
-                        backup_original_value: backup_info.map(|b| b.payload.display_previous()),
-                        status_error: None,
-                    }
+                    make_view(indices.display_human(), is_applied, None)
                 }
-                Err(err) => TweakStatusView {
-                    definition: tweak.clone(),
-                    target_summary,
-                    expected_value_display,
-                    current_os_value: "Error leyendo PowrProf".to_string(),
-                    is_applied: false,
-                    has_backup: backup_info.is_some(),
-                    backup_original_value: backup_info.map(|b| b.payload.display_previous()),
-                    status_error: Some(err.to_string()),
-                },
+                Err(err) => make_view("Error leyendo PowrProf".to_string(), false, Some(err.to_string())),
             },
             TweakTarget::Process { .. } => {
-                // Etapa 6: inspección de prioridad/CPU Sets sobre proceso en ejecución
-                TweakStatusView {
-                    definition: tweak.clone(),
-                    target_summary,
-                    expected_value_display,
-                    current_os_value: "Se aplica solo al detectar el juego (Etapa 6)".to_string(),
-                    is_applied: false,
-                    has_backup: false,
-                    backup_original_value: None,
-                    status_error: None,
-                }
+                make_view(
+                    "Ajuste dinámico gestionado desde la pestaña 'Perfiles por Juego'".to_string(),
+                    false,
+                    None,
+                )
             }
-            TweakTarget::Blocked { .. } => TweakStatusView {
-                definition: tweak.clone(),
-                target_summary,
-                expected_value_display,
-                current_os_value: "Protegido / No se modifica".to_string(),
-                is_applied: false,
-                has_backup: false,
-                backup_original_value: None,
-                status_error: None,
-            },
+            TweakTarget::Blocked { .. } => make_view("Protegido / No se modifica".to_string(), false, None),
         }
     }
 
@@ -393,15 +334,16 @@ impl Engine {
         // 1. guard.check (bloquea inmediatamente los ítems Bloqueados y claves fuera de allowlist)
         guard::check_can_apply(tweak)?;
 
-        // Candado estricto de Etapa 5: los tweaks Avanzados solo se aplican dentro de una sesión A/B o Test Ciego con token activo
+        // Los tweaks Avanzados requieren una sesión A/B o Test Ciego activo, o validación empírica previa favorable
         if tweak.nivel == TweakLevel::Avanzado {
             let is_valid = session_token
                 .map(|tok| self.is_token_active(tok))
                 .unwrap_or(false);
+            let is_pre_validated = self.db.is_tweak_ab_validated(tweak_id).unwrap_or(false);
 
-            if !is_valid {
+            if !is_valid && !is_pre_validated {
                 return Err(AppError::RequiresAbTest(
-                    "Este tweak es de nivel Avanzado y requiere una sesión A/B o Test Ciego activa con token válido.".to_string(),
+                    "Este tweak es de nivel Avanzado y requiere una sesión A/B o Test Ciego con veredicto favorable antes de conservarse en el sistema.".to_string(),
                 ));
             }
         }
@@ -428,9 +370,8 @@ impl Engine {
                 *dc_index,
             ),
             TweakTarget::Process { .. } => {
-                // Reservado para Etapa 6 (sys/process.rs + profiles/manager.rs)
                 Err(AppError::StagePending(
-                    "Los ajustes dinámicos por proceso de juego pertenecen a la Etapa 6".to_string(),
+                    "Los ajustes de proceso se configuran automáticamente desde la pestaña 'Perfiles por Juego'.".to_string(),
                 ))
             }
             TweakTarget::Blocked { .. } => Err(AppError::GuardViolation(
@@ -1053,6 +994,9 @@ fn restore_and_verify_snapshot(snapshot: &BackupSnapshot) -> AppResult<String> {
             value_name,
             previous_state,
         } => {
+            // Re-validar contra allowlist de guard para prevenir manipulación externa de JSON
+            guard::validate_registry_location(*hive, subkey, value_name)?;
+
             match previous_state {
                 RegistryState::Present(prev_data) => {
                     registry::write_value(*hive, subkey, value_name, prev_data)?;
@@ -1087,6 +1031,7 @@ fn restore_and_verify_snapshot(snapshot: &BackupSnapshot) -> AppResult<String> {
             duplicated_guid,
             ..
         } => {
+            guard::validate_power_plan_guid(previous_guid)?;
             let restored = power::restore_plan(previous_guid, duplicated_guid.as_deref())?;
             if !restored.guid.eq_ignore_ascii_case(previous_guid) {
                 return Err(AppError::VerificationMismatch {
@@ -1104,6 +1049,7 @@ fn restore_and_verify_snapshot(snapshot: &BackupSnapshot) -> AppResult<String> {
             previous_ac_index,
             previous_dc_index,
         } => {
+            guard::validate_power_setting_guids(subgroup_guid, setting_guid)?;
             match power::write_setting_on_scheme(
                 scheme_guid,
                 subgroup_guid,

@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+﻿use serde::{Deserialize, Serialize};
 
 #[cfg(not(windows))]
 use crate::error::{AppError, AppResult};

@@ -1,4 +1,4 @@
-use core::ffi::c_void;
+﻿use core::ffi::c_void;
 use core::ptr;
 use serde::{Deserialize, Serialize};
 

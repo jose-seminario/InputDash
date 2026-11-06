@@ -1,4 +1,4 @@
-import type { SimulationItem } from "../types/tweak";
+﻿import type { SimulationItem } from "../types/tweak";
 
 interface SimulationPreviewPanelProps {
   label: string | null;

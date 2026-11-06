@@ -1,4 +1,4 @@
-import { useTweaksStore } from "../store/useTweaksStore";
+﻿import { useTweaksStore } from "../store/useTweaksStore";
 
 interface EducationalPrinciple {
   id: string;

@@ -1,4 +1,4 @@
-use core::ffi::c_void;
+﻿use core::ffi::c_void;
 use std::ptr;
 use std::thread::JoinHandle;
 use windows::core::GUID;

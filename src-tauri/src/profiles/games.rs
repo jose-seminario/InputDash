@@ -45,8 +45,8 @@ impl GameProfile {
                 id: "valorant".to_string(),
                 name: "VALORANT".to_string(),
                 executables: vec![
-                    "VALORANT.exe".to_string(),
                     "VALORANT-Win64-Shipping.exe".to_string(),
+                    "VALORANT.exe".to_string(),
                 ],
                 enabled: true,
                 high_priority: true,
@@ -56,7 +56,7 @@ impl GameProfile {
                 runtime_state: ProfileRuntimeState::Waiting,
                 detected_pid: None,
                 detected_exe: None,
-                last_status_message: Some("Esperando ejecución de VALORANT.exe...".to_string()),
+                last_status_message: Some("Esperando ejecución de VALORANT-Win64-Shipping.exe...".to_string()),
             },
             Self {
                 id: "warzone".to_string(),
@@ -64,7 +64,6 @@ impl GameProfile {
                 executables: vec![
                     "cod.exe".to_string(),
                     "modernwarfare.exe".to_string(),
-                    "bootstrapper.exe".to_string(),
                 ],
                 enabled: true,
                 high_priority: true,

@@ -4,6 +4,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
+use crate::db::Database;
 use crate::profiles::games::{GameProfile, ProfileRuntimeState};
 use crate::sys::process::{
     get_core_contention, get_cpu_topology, get_running_processes, set_process_affinity,
@@ -19,6 +20,7 @@ struct ProfileManagerState {
     cpu_topology: CpuTopologyInfo,
     last_hid_hash: u64,
     app_handle: Option<AppHandle>,
+    db: Option<Arc<Database>>,
 }
 
 pub struct ProfileManager {
@@ -27,17 +29,41 @@ pub struct ProfileManager {
     _worker_thread: Option<JoinHandle<()>>,
 }
 
+impl Default for ProfileManager {
+    fn default() -> Self {
+        Self::new(None)
+    }
+}
+
 impl ProfileManager {
-    pub fn new() -> Self {
+    pub fn new(db: Option<Arc<Database>>) -> Self {
         let topology = get_cpu_topology();
+        let mut profiles = GameProfile::default_profiles();
+
+        // Cargar perfiles guardados en SQLite si existen
+        if let Some(d) = &db {
+            if let Ok(saved) = d.load_game_profiles() {
+                for (id, json_str) in saved {
+                    if let Ok(saved_prof) = serde_json::from_str::<GameProfile>(&json_str) {
+                        if let Some(pos) = profiles.iter().position(|p| p.id == id) {
+                            profiles[pos] = saved_prof;
+                        } else {
+                            profiles.push(saved_prof);
+                        }
+                    }
+                }
+            }
+        }
+
         let initial_state = ProfileManagerState {
-            profiles: GameProfile::default_profiles(),
+            profiles,
             active_profile_id: None,
             active_pid: None,
             timer_guard: None,
             cpu_topology: topology,
             last_hid_hash: 0,
             app_handle: None,
+            db,
         };
 
         let state = Arc::new(Mutex::new(initial_state));
@@ -74,13 +100,14 @@ impl ProfileManager {
     fn poll_tick(state_arc: &Arc<Mutex<ProfileManagerState>>) {
         let running_processes = get_running_processes();
 
+        // 0. Detección de Hot-Plug USB / periféricos HID fuera del mutex lock
+        let current_hid_hash = crate::sys::hardware::get_hid_topology_signature();
+
         let mut guard = match state_arc.lock() {
             Ok(g) => g,
             Err(_) => return,
         };
 
-        // 0. Detección de Hot-Plug USB / periféricos HID
-        let current_hid_hash = crate::sys::hardware::get_hid_topology_signature();
         let should_emit = if guard.last_hid_hash != 0 && guard.last_hid_hash != current_hid_hash {
             guard.last_hid_hash = current_hid_hash;
             true
@@ -102,10 +129,17 @@ impl ProfileManager {
 
         let mut newly_detected: Option<(String, u32, String)> = None;
 
-        // 1. Verificar si el juego actualmente activo sigue corriendo (clonar ID para no tomar prestado guard)
+        // 1. Verificar si el juego actualmente activo sigue corriendo (validando PID y nombre de exe)
         let active_id_opt = guard.active_profile_id.clone();
         if let (Some(active_id), Some(active_pid)) = (active_id_opt, guard.active_pid) {
-            let still_running = running_processes.iter().any(|p| p.pid == active_pid);
+            let still_running = if let Some(prof) = guard.profiles.iter().find(|p| p.id == active_id) {
+                running_processes.iter().any(|p| {
+                    p.pid == active_pid && prof.executables.iter().any(|exe| exe.eq_ignore_ascii_case(&p.name))
+                })
+            } else {
+                false
+            };
+
             if !still_running {
                 // El juego se cerró: Revertir timer de inmediato con RAII
                 guard.timer_guard = None; // Drop de TimerResolutionGuard restaura el SO
@@ -116,85 +150,85 @@ impl ProfileManager {
                     prof.runtime_state = ProfileRuntimeState::Waiting;
                     prof.detected_pid = None;
                     prof.detected_exe = None;
-                    prof.last_status_message = Some("Juego finalizado. Timer y prioridad restaurados.".to_string());
+                    prof.last_status_message = Some(format!(
+                        "Juego cerrado. Timer y afinidad restaurados a valores por defecto."
+                    ));
                 }
             }
         }
 
-        // 2. Si no hay juego activo, buscar si alguno de los perfiles habilitados se abrió
+        // 2. Si no hay juego activo, buscar si alguno de los perfiles habilitados se ha iniciado
         if guard.active_profile_id.is_none() {
             for prof in &guard.profiles {
                 if !prof.enabled {
                     continue;
                 }
 
-                for target_exe in &prof.executables {
-                    let target_lower = target_exe.to_lowercase();
-                    if let Some(found) = running_processes
-                        .iter()
-                        .find(|p| p.name.to_lowercase() == target_lower)
-                    {
-                        newly_detected = Some((prof.id.clone(), found.pid, found.name.clone()));
+                for proc in &running_processes {
+                    let proc_name_lower = proc.name.to_lowercase();
+                    if prof.executables.iter().any(|exe| exe.to_lowercase() == proc_name_lower) {
+                        newly_detected = Some((prof.id.clone(), proc.pid, proc.name.clone()));
                         break;
                     }
                 }
+
                 if newly_detected.is_some() {
                     break;
                 }
             }
         }
 
-        // 3. Activar perfil si se detectó un juego
+        // 3. Aplicar optimizaciones si se detectó un juego
         if let Some((prof_id, pid, exe_name)) = newly_detected {
-            let is_hybrid = guard.cpu_topology.is_hybrid;
-            let is_x3d = guard.cpu_topology.is_x3d;
+            let (high_priority, timer_req, isolate_req, manual_affinity) = {
+                let prof = match guard.profiles.iter().find(|p| p.id == prof_id) {
+                    Some(p) => p,
+                    None => return,
+                };
+                (
+                    prof.high_priority,
+                    prof.timer_resolution_05ms,
+                    prof.cpu_sets_isolate.unwrap_or(false),
+                    prof.manual_affinity_mask,
+                )
+            };
 
-            let mut timer_res_acquired = None;
             let mut status_msg_parts = Vec::new();
 
-            // Buscar configuración del perfil
+            // A. Prioridad de Proceso (HIGH_PRIORITY_CLASS)
+            if high_priority {
+                match set_process_priority(pid, true) {
+                    Ok(()) => status_msg_parts.push("Prioridad Alta activa".to_string()),
+                    Err(e) => status_msg_parts.push(format!("Prioridad: {e}")),
+                }
+            }
+
+            // B. Temporizador Global de 0.5 ms
+            let mut timer_res_acquired = None;
+            if timer_req {
+                match TimerResolutionGuard::acquire(5000) {
+                    Ok(g) => {
+                        status_msg_parts.push("Timer 0.5 ms activo".to_string());
+                        timer_res_acquired = Some(g);
+                    }
+                    Err(e) => status_msg_parts.push(format!("Timer: {e}")),
+                }
+            }
+
+            // C. Afinidad / CPU Sets
+            if let Some(mask) = manual_affinity {
+                match set_process_affinity(pid, mask) {
+                    Ok(()) => status_msg_parts.push(format!("Afinidad fija (Máscara 0x{mask:X})")),
+                    Err(e) => status_msg_parts.push(format!("Afinidad: {e}")),
+                }
+            } else if isolate_req {
+                match set_process_cpu_sets_isolate(pid) {
+                    Ok(()) => status_msg_parts.push("Núcleos aislados (CPU Sets)".to_string()),
+                    Err(e) => status_msg_parts.push(format!("CPU Sets: {e}")),
+                }
+            }
+
             if let Some(prof) = guard.profiles.iter_mut().find(|p| p.id == prof_id) {
-                // Prioridad High
-                if prof.high_priority {
-                    match set_process_priority(pid, true) {
-                        Ok(()) => status_msg_parts.push("Prioridad Alta activada".to_string()),
-                        Err(e) => status_msg_parts.push(format!("Prioridad: {e}")),
-                    }
-                }
-
-                // Timer Resolution 0.5ms (RAII Guard)
-                if prof.timer_resolution_05ms {
-                    match TimerResolutionGuard::acquire_05ms() {
-                        Ok(t_guard) => {
-                            timer_res_acquired = Some(t_guard);
-                            status_msg_parts.push("Timer Resolution 0.5ms activo".to_string());
-                        }
-                        Err(e) => status_msg_parts.push(format!("Timer: {e}")),
-                    }
-                }
-
-                // Aislamiento de Núcleos (CPU Sets)
-                if prof.cpu_sets_isolate {
-                    match set_process_cpu_sets_isolate(pid) {
-                        Ok(()) => status_msg_parts.push("Aislamiento CPU Sets activo (sin Core 0)".to_string()),
-                        Err(e) => status_msg_parts.push(format!("CPU Sets: {e}")),
-                    }
-                }
-
-                // Afinidad de CPU con Bloqueo Dinámico
-                if let Some(mask) = prof.manual_affinity_mask {
-                    if is_hybrid || is_x3d {
-                        status_msg_parts.push(
-                            "Afinidad manual rechazada (Windows Thread Director / X3D optimiza mejor)".to_string(),
-                        );
-                    } else {
-                        match set_process_affinity(pid, mask) {
-                            Ok(()) => status_msg_parts.push(format!("Afinidad fijada a máscara {mask:#X}")),
-                            Err(e) => status_msg_parts.push(format!("Afinidad: {e}")),
-                        }
-                    }
-                }
-
                 prof.runtime_state = ProfileRuntimeState::Active;
                 prof.detected_pid = Some(pid);
                 prof.detected_exe = Some(exe_name.clone());
@@ -221,13 +255,17 @@ impl ProfileManager {
     pub fn toggle_profile(&self, id: &str, enabled: bool) -> Result<GameProfile, String> {
         let mut guard = self.state.lock().map_err(|e| e.to_string())?;
 
-        // Evaluar estado activo antes de prestar guard.profiles de forma mutable
         let is_active = guard.active_profile_id.as_deref() == Some(id);
         if !enabled && is_active {
+            if let Some(pid) = guard.active_pid {
+                let _ = set_process_priority(pid, false);
+            }
             guard.timer_guard = None;
             guard.active_profile_id = None;
             guard.active_pid = None;
         }
+
+        let db_opt = guard.db.clone();
 
         if let Some(prof) = guard.profiles.iter_mut().find(|p| p.id == id) {
             prof.enabled = enabled;
@@ -235,9 +273,17 @@ impl ProfileManager {
                 prof.runtime_state = ProfileRuntimeState::Waiting;
                 prof.detected_pid = None;
                 prof.detected_exe = None;
-                prof.last_status_message = Some("Perfil desactivado por el usuario.".to_string());
+                prof.last_status_message = Some("Perfil desactivado por el usuario. Prioridad y timer restaurados.".to_string());
             }
-            Ok(prof.clone())
+
+            let clone = prof.clone();
+            if let Some(d) = db_opt {
+                if let Ok(json_str) = serde_json::to_string(&clone) {
+                    let _ = d.save_game_profile(&clone.id, &json_str);
+                }
+            }
+
+            Ok(clone)
         } else {
             Err(format!("Perfil con id '{id}' no encontrado"))
         }
@@ -246,13 +292,11 @@ impl ProfileManager {
     pub fn update_profile(&self, updated: GameProfile) -> Result<GameProfile, String> {
         let mut guard = self.state.lock().map_err(|e| e.to_string())?;
 
-        // Bloqueo dinámico de afinidad si la CPU es híbrida o X3D
         let is_restricted = guard.cpu_topology.is_hybrid || guard.cpu_topology.is_x3d;
         let mut prof_to_save = updated;
 
-        // Candado de seguridad para CPU Sets en CPUs monolíticas
-        if !is_restricted && prof_to_save.cpu_sets_isolate {
-            prof_to_save.cpu_sets_isolate = false;
+        if !is_restricted && prof_to_save.cpu_sets_isolate.unwrap_or(false) {
+            prof_to_save.cpu_sets_isolate = Some(false);
             return Err("Tu CPU es monolítica. El aislamiento de núcleos no es necesario y podría causar inestabilidad.".to_string());
         }
         if is_restricted && prof_to_save.manual_affinity_mask.is_some() {
@@ -260,6 +304,13 @@ impl ProfileManager {
             prof_to_save.last_status_message = Some(
                 "Afinidad manual deshabilitada: la arquitectura de tu CPU requiere gestión dinámica.".to_string(),
             );
+        }
+
+        let db_opt = guard.db.clone();
+        if let Some(d) = &db_opt {
+            if let Ok(json_str) = serde_json::to_string(&prof_to_save) {
+                let _ = d.save_game_profile(&prof_to_save.id, &json_str);
+            }
         }
 
         if let Some(index) = guard.profiles.iter().position(|p| p.id == prof_to_save.id) {

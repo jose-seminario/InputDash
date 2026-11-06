@@ -4,9 +4,6 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 
-# Generated compile-time icon
-src-tauri/icons/
-
 # Portable runtime data (local DB & JSON backups)
 InputDash_data/
 *.db

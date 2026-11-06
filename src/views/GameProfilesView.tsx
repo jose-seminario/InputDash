@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import {
+  formatIpcError,
   ipcGetGameProfiles,
   ipcToggleGameProfile,
   ipcUpdateGameProfile,
@@ -65,7 +66,7 @@ export function GameProfilesView() {
         }
       } catch (err) {
         if (isMounted) {
-          setErrorMsg(String(err));
+          setErrorMsg(formatIpcError(err).message);
         }
       } finally {
         if (isMounted) {
@@ -92,7 +93,7 @@ export function GameProfilesView() {
       const updated = await ipcToggleGameProfile(id, !currentEnabled);
       setProfiles((prev) => prev.map((p) => (p.id === id ? updated : p)));
     } catch (err) {
-      setErrorMsg(String(err));
+      setErrorMsg(formatIpcError(err).message);
     }
   };
 
@@ -104,7 +105,7 @@ export function GameProfilesView() {
       });
       setProfiles((prev) => prev.map((p) => (p.id === prof.id ? updated : p)));
     } catch (err) {
-      setErrorMsg(String(err));
+      setErrorMsg(formatIpcError(err).message);
     }
   };
 
@@ -116,7 +117,7 @@ export function GameProfilesView() {
       });
       setProfiles((prev) => prev.map((p) => (p.id === prof.id ? updated : p)));
     } catch (err) {
-      setErrorMsg(String(err));
+      setErrorMsg(formatIpcError(err).message);
     }
   };
 
@@ -132,7 +133,7 @@ export function GameProfilesView() {
       });
       setProfiles((prev) => prev.map((p) => (p.id === prof.id ? updated : p)));
     } catch (err) {
-      setErrorMsg(String(err));
+      setErrorMsg(formatIpcError(err).message);
     }
   };
 
@@ -146,7 +147,7 @@ export function GameProfilesView() {
       });
       setProfiles((prev) => prev.map((p) => (p.id === prof.id ? updated : p)));
     } catch (err) {
-      setErrorMsg(String(err));
+      setErrorMsg(formatIpcError(err).message);
     }
   };
 

@@ -75,7 +75,7 @@ interface TweaksState {
 }
 
 export const useTweaksStore = create<TweaksState>((set, get) => ({
-  activeTab: "optimizar",
+  activeTab: "dashboard",
   simulationMode: false,
   simulationResults: null,
   simulationLabel: null,

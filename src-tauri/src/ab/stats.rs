@@ -22,6 +22,9 @@ pub struct TTestResult {
     pub degrees_of_freedom: f64,
     pub p_value: f64,
     pub is_significant: bool,
+    pub cohens_d: Option<f64>,
+    pub mann_whitney_u: Option<f64>,
+    pub mann_whitney_p: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,7 +162,7 @@ pub fn compute_summary(values: &[f64]) -> Option<SampleSummary> {
 }
 
 /// Welch's two-sample t-test for unequal variances and sample sizes.
-/// Returns t-statistic, degrees of freedom, two-tailed p-value and significance.
+/// Returns t-statistic, degrees of freedom, two-tailed p-value, significance, Cohen's d and Mann-Whitney U.
 pub fn welch_t_test(sample_a: &[f64], sample_b: &[f64]) -> Option<TTestResult> {
     if sample_a.len() < 2 || sample_b.len() < 2 {
         return None;
@@ -168,7 +171,14 @@ pub fn welch_t_test(sample_a: &[f64], sample_b: &[f64]) -> Option<TTestResult> {
     let m2 = mean(sample_b)?;
     let s1 = std_dev(sample_a)?;
     let s2 = std_dev(sample_b)?;
-    welch_t_test_from_stats(m1, s1, sample_a.len(), m2, s2, sample_b.len())
+    let mut result = welch_t_test_from_stats(m1, s1, sample_a.len(), m2, s2, sample_b.len())?;
+
+    result.cohens_d = cohens_d(sample_a, sample_b);
+    if let Some((u, p)) = mann_whitney_u(sample_a, sample_b) {
+        result.mann_whitney_u = Some(u);
+        result.mann_whitney_p = Some(p);
+    }
+    Some(result)
 }
 
 /// Computes Welch's t-test directly from summary statistics: mean, standard deviation, and sample count.
@@ -202,6 +212,9 @@ pub fn welch_t_test_from_stats(
                 degrees_of_freedom: (n1_f + n2_f - 2.0).max(1.0),
                 p_value: 1.0,
                 is_significant: false,
+                cohens_d: Some(0.0),
+                mann_whitney_u: None,
+                mann_whitney_p: None,
             });
         } else {
             return Some(TTestResult {
@@ -209,6 +222,9 @@ pub fn welch_t_test_from_stats(
                 degrees_of_freedom: (n1_f + n2_f - 2.0).max(1.0),
                 p_value: 0.0,
                 is_significant: true,
+                cohens_d: None,
+                mann_whitney_u: None,
+                mann_whitney_p: None,
             });
         }
     }
@@ -232,7 +248,110 @@ pub fn welch_t_test_from_stats(
         degrees_of_freedom: (df * 10.0).round() / 10.0,
         p_value: (p_value * 10_000.0).round() / 10_000.0,
         is_significant,
+        cohens_d: None,
+        mann_whitney_u: None,
+        mann_whitney_p: None,
     })
+}
+
+/// Computes Cohen's d effect size between sample A and sample B.
+/// d = (mean_a - mean_b) / s_pooled
+pub fn cohens_d(sample_a: &[f64], sample_b: &[f64]) -> Option<f64> {
+    if sample_a.len() < 2 || sample_b.len() < 2 {
+        return None;
+    }
+    let m1 = mean(sample_a)?;
+    let m2 = mean(sample_b)?;
+    let n1 = sample_a.len() as f64;
+    let n2 = sample_b.len() as f64;
+    let v1 = variance(sample_a)?;
+    let v2 = variance(sample_b)?;
+
+    let pooled_var = ((n1 - 1.0) * v1 + (n2 - 1.0) * v2) / (n1 + n2 - 2.0);
+    if pooled_var <= 1e-15 {
+        return Some(0.0);
+    }
+    let d = (m1 - m2) / pooled_var.sqrt();
+    Some((d * 1000.0).round() / 1000.0)
+}
+
+/// Computes the Mann-Whitney U test (Wilcoxon rank-sum test) for two independent samples.
+/// Returns (U_statistic, two-tailed p_value).
+pub fn mann_whitney_u(sample_a: &[f64], sample_b: &[f64]) -> Option<(f64, f64)> {
+    let n1 = sample_a.len();
+    let n2 = sample_b.len();
+    if n1 < 2 || n2 < 2 {
+        return None;
+    }
+
+    let mut combined: Vec<(f64, usize)> = Vec::with_capacity(n1 + n2);
+    for &x in sample_a {
+        combined.push((x, 0));
+    }
+    for &y in sample_b {
+        combined.push((y, 1));
+    }
+    combined.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let total = combined.len();
+    let mut ranks = vec![0.0; total];
+    let mut i = 0;
+    while i < total {
+        let mut j = i;
+        while j < total && (combined[j].0 - combined[i].0).abs() < 1e-12 {
+            j += 1;
+        }
+        let avg_rank = (i + 1 + j) as f64 / 2.0;
+        for k in i..j {
+            ranks[k] = avg_rank;
+        }
+        i = j;
+    }
+
+    let mut r1 = 0.0;
+    for k in 0..total {
+        if combined[k].1 == 0 {
+            r1 += ranks[k];
+        }
+    }
+
+    let n1_f = n1 as f64;
+    let n2_f = n2 as f64;
+    let u1 = r1 - (n1_f * (n1_f + 1.0)) / 2.0;
+    let u2 = (n1_f * n2_f) - u1;
+    let u = u1.min(u2);
+
+    let mean_u = (n1_f * n2_f) / 2.0;
+    let var_u = (n1_f * n2_f * (n1_f + n2_f + 1.0)) / 12.0;
+    let sigma_u = var_u.sqrt();
+
+    let p_value = if sigma_u > 0.0 {
+        let z = ((u - mean_u).abs() - 0.5).max(0.0) / sigma_u;
+        erfc(z / std::f64::consts::SQRT_2).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+
+    Some(((u * 10.0).round() / 10.0, (p_value * 10_000.0).round() / 10_000.0))
+}
+
+/// Complementary error function erfc(x) via Chebyshev rational approximation.
+fn erfc(x: f64) -> f64 {
+    if x < 0.0 {
+        return 2.0 - erfc(-x);
+    }
+    let z = x.abs();
+    let t = 1.0 / (1.0 + 0.5 * z);
+    let poly = -z * z - 1.26551223
+        + t * (1.00002368
+            + t * (0.37409196
+                + t * (0.09678418
+                    + t * (-0.18628806
+                        + t * (0.27886807
+                            + t * (-1.13520398
+                                + t * (1.48851587
+                                    + t * (-0.82215223 + t * 0.17087277))))))));
+    (t * poly.exp()).clamp(0.0, 2.0)
 }
 
 /// Computes the two-tailed p-value for Student's t distribution with `df` degrees of freedom.

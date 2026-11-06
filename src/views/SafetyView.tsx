@@ -1,4 +1,4 @@
-import { SimulationPreviewPanel } from "../components/SimulationPreviewPanel";
+﻿import { SimulationPreviewPanel } from "../components/SimulationPreviewPanel";
 import { useTweaksStore } from "../store/useTweaksStore";
 
 export function SafetyView() {

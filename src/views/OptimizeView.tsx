@@ -12,6 +12,7 @@ export function OptimizeView() {
     applyTweak,
     applyPreset,
     revertTweak,
+    setActiveTab,
   } = useTweaksStore();
 
   const safeTweaks = tweaks.filter((t) => t.definition.nivel === "seguro");
@@ -182,13 +183,29 @@ export function OptimizeView() {
       <div className="tweaks-list">
         {advancedTweaks.map((item) => {
           const { definition } = item;
+          const isThisBusy = busyAction === definition.id;
+          const isProcessTweak = definition.target.tipo === "process";
 
           return (
             <article key={definition.id} className="tweak-card tweak-card-muted">
               <div className="tweak-info">
                 <div className="tweak-title-row">
                   <h3 className="tweak-title">{definition.nombre}</h3>
-                  <span className="badge badge-warn">Avanzado · Opt-In</span>
+                  <span
+                    className={`badge ${
+                      item.is_applied
+                        ? "badge-applied"
+                        : item.is_ab_validated
+                        ? "badge-applied"
+                        : "badge-warn"
+                    }`}
+                  >
+                    {item.is_applied
+                      ? "Aplicado"
+                      : item.is_ab_validated
+                      ? "A/B Validado"
+                      : "Avanzado · Requiere A/B"}
+                  </span>
                   <span className="badge badge-default">
                     {definition.categoria} · riesgo {definition.riesgo}
                   </span>
@@ -215,13 +232,63 @@ export function OptimizeView() {
                     <span className="meta-label">Propuesta A/B:</span>
                     <span className="meta-mono">{item.expected_value_display}</span>
                   </div>
+                  <div>
+                    <span className="meta-label">Validación A/B:</span>
+                    <span className="meta-mono">
+                      {item.is_ab_validated
+                        ? "Verificado experimentalmente"
+                        : "Pendiente de prueba"}
+                    </span>
+                  </div>
                 </div>
+
+                {item.status_error && (
+                  <div className="inline-error">
+                    Aviso de lectura: {item.status_error}
+                  </div>
+                )}
               </div>
 
               <div className="tweak-actions tweak-actions-wide">
-                <button type="button" className="btn btn-secondary" disabled>
-                  Requiere A/B (Próximamente)
-                </button>
+                {isProcessTweak ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setActiveTab("perfiles")}
+                  >
+                    Configurar en Perfiles
+                  </button>
+                ) : item.is_applied ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={anyBusy || simulationMode}
+                    onClick={() => void revertTweak(definition.id)}
+                  >
+                    {isThisBusy ? "Revirtiendo..." : "Revertir Ajuste"}
+                  </button>
+                ) : item.is_ab_validated ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={anyBusy}
+                    onClick={() => void applyTweak(definition.id)}
+                  >
+                    {isThisBusy
+                      ? "Procesando..."
+                      : simulationMode
+                      ? "Simular"
+                      : "Aplicar (Validado A/B)"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setActiveTab("ab_testing")}
+                  >
+                    Evaluar en Prueba A/B
+                  </button>
+                )}
               </div>
             </article>
           );

@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { useTweaksStore } from "../store/useTweaksStore";
 import {
+  formatIpcError,
   ipcStartFrametimeAnalysis,
   ipcStartDpcAnalysis,
   ipcStartBlindTest,
@@ -51,7 +52,9 @@ export function ABTestingView() {
   // Estado para Prueba A/B Estándar
   // -------------------------------------------------------------------------
   const [selectedTweakId, setSelectedTweakId] = useState<string>(() => {
-    const adv = tweaks.find((t) => t.definition.nivel === "avanzado");
+    const adv = tweaks.find(
+      (t) => t.definition.nivel === "avanzado" && t.definition.target.tipo !== "process"
+    );
     return adv ? adv.definition.id : tweaks[0]?.definition.id || "mmcss_system_responsiveness";
   });
 
@@ -67,7 +70,9 @@ export function ABTestingView() {
   // Estado para Test Ciego (Double-Blind)
   // -------------------------------------------------------------------------
   const [blindTweakId, setBlindTweakId] = useState<string>(() => {
-    const adv = tweaks.find((t) => t.definition.nivel === "avanzado");
+    const adv = tweaks.find(
+      (t) => t.definition.nivel === "avanzado" && t.definition.target.tipo !== "process"
+    );
     return adv ? adv.definition.id : tweaks[0]?.definition.id || "mmcss_system_responsiveness";
   });
 
@@ -127,6 +132,9 @@ export function ABTestingView() {
       } else if (metric === "frametime") {
         setLocalStatusMsg("Capturando sesión ETW de present frames (10 segundos)...");
         const res = await ipcStartFrametimeAnalysis();
+        if (res.samples_ms && res.samples_ms.length >= 5) {
+          return res.samples_ms.slice(0, count);
+        }
         const base = res.avg_frametime_ms;
         const low = 1000.0 / Math.max(res.fps_1pct_low, 10.0);
         const generated: number[] = [];
@@ -139,6 +147,9 @@ export function ABTestingView() {
       } else if (metric === "dpc") {
         setLocalStatusMsg("Capturando traza ETW Kernel DPC/ISR de drivers (10 segundos)...");
         const res = await ipcStartDpcAnalysis();
+        if (res.samples_us && res.samples_us.length >= 5) {
+          return res.samples_us.map((u) => u / 1000.0).slice(0, count);
+        }
         const baseUs = res.highest_dpc_us / 1000.0;
         const generated: number[] = [];
         for (let i = 0; i < count; i++) {
@@ -165,7 +176,7 @@ export function ABTestingView() {
       );
       setLocalStatusMsg(`Baseline registrado exitosamente (${samples.length} muestras).`);
     } catch (err) {
-      setLocalStatusMsg(`Error en Baseline: ${String(err)}`);
+      setLocalStatusMsg(`Error en Baseline: ${formatIpcError(err).message}`);
     }
   };
 
@@ -177,7 +188,7 @@ export function ABTestingView() {
       await applyAndEvaluateAb(samples);
       setLocalStatusMsg(`Evaluación A/B completada con ${samples.length} muestras.`);
     } catch (err) {
-      setLocalStatusMsg(`Error en Test A/B: ${String(err)}`);
+      setLocalStatusMsg(`Error en Test A/B: ${formatIpcError(err).message}`);
     }
   };
 
@@ -225,7 +236,7 @@ export function ABTestingView() {
       setCountdown(3);
     } catch (err) {
       setIsBlindBusy(false);
-      setLocalStatusMsg(`Error al iniciar Test Ciego: ${String(err)}`);
+      setLocalStatusMsg(`Error al iniciar Test Ciego: ${formatIpcError(err).message}`);
     }
   };
 
@@ -278,7 +289,7 @@ export function ABTestingView() {
         }, delay);
       }
     } catch (err) {
-      setLocalStatusMsg(`Error al registrar click: ${String(err)}`);
+      setLocalStatusMsg(`Error al registrar click: ${formatIpcError(err).message}`);
     }
   };
 
@@ -297,7 +308,7 @@ export function ABTestingView() {
       setCountdown(3);
     } catch (err) {
       setIsBlindBusy(false);
-      setLocalStatusMsg(`Error al avanzar a Fase B: ${String(err)}`);
+      setLocalStatusMsg(`Error al avanzar a Fase B: ${formatIpcError(err).message}`);
     }
   };
 
@@ -313,7 +324,7 @@ export function ABTestingView() {
       setClickCountInPhase(0);
       setLocalStatusMsg("Test Ciego cancelado. Cualquier cambio en el sistema fue revertido de inmediato.");
     } catch (err) {
-      setLocalStatusMsg(`Error al cancelar: ${String(err)}`);
+      setLocalStatusMsg(`Error al cancelar: ${formatIpcError(err).message}`);
     }
   };
 
@@ -349,7 +360,7 @@ export function ABTestingView() {
       });
       setLdatResult(res);
     } catch (err) {
-      setLdatError(`Error evaluando medición externa: ${String(err)}`);
+      setLdatError(`Error evaluando medición externa: ${formatIpcError(err).message}`);
     }
   };
 
@@ -438,7 +449,11 @@ export function ABTestingView() {
                   >
                     <optgroup label="Tweaks Avanzados (Habilitados con Session Token)">
                       {tweaks
-                        .filter((t) => t.definition.nivel === "avanzado")
+                        .filter(
+                          (t) =>
+                            t.definition.nivel === "avanzado" &&
+                            t.definition.target.tipo !== "process"
+                        )
                         .map((t) => (
                           <option key={t.definition.id} value={t.definition.id}>
                             {t.definition.nombre} ({t.definition.categoria.toUpperCase()})
@@ -447,7 +462,11 @@ export function ABTestingView() {
                     </optgroup>
                     <optgroup label="Tweaks Seguros">
                       {tweaks
-                        .filter((t) => t.definition.nivel === "seguro")
+                        .filter(
+                          (t) =>
+                            t.definition.nivel === "seguro" &&
+                            t.definition.target.tipo !== "process"
+                        )
                         .map((t) => (
                           <option key={t.definition.id} value={t.definition.id}>
                             {t.definition.nombre}
@@ -655,7 +674,11 @@ export function ABTestingView() {
                 >
                   <optgroup label="Tweaks Avanzados (Habilitados con Session Token)">
                     {tweaks
-                      .filter((t) => t.definition.nivel === "avanzado")
+                      .filter(
+                        (t) =>
+                          t.definition.nivel === "avanzado" &&
+                          t.definition.target.tipo !== "process"
+                      )
                       .map((t) => (
                         <option key={t.definition.id} value={t.definition.id}>
                           {t.definition.nombre} ({t.definition.categoria.toUpperCase()})
@@ -664,7 +687,11 @@ export function ABTestingView() {
                   </optgroup>
                   <optgroup label="Tweaks Seguros">
                     {tweaks
-                      .filter((t) => t.definition.nivel === "seguro")
+                      .filter(
+                        (t) =>
+                          t.definition.nivel === "seguro" &&
+                          t.definition.target.tipo !== "process"
+                      )
                       .map((t) => (
                         <option key={t.definition.id} value={t.definition.id}>
                           {t.definition.nombre}

@@ -1,2 +1,2 @@
-pub mod games;
+﻿pub mod games;
 pub mod manager;
