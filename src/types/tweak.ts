@@ -237,6 +237,7 @@ export interface UsbDeviceNode {
   instance_id: string;
   is_mouse: boolean;
   is_audio: boolean;
+  is_keyboard?: boolean;
   name?: string;
   hardware_id?: string;
 }

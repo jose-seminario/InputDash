@@ -50,6 +50,7 @@ pub struct UsbDeviceNode {
     pub instance_id: String,
     pub is_mouse: bool,
     pub is_audio: bool,
+    pub is_keyboard: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1197,7 +1198,82 @@ pub fn get_hid_topology_signature() -> u64 {
 // Implementation: USB Topology & Root Hub Contention (Etapa 3.2.3)
 // -----------------------------------------------------------------------------
 
+fn get_known_hid_vid_pids() -> (HashSet<(String, String)>, HashSet<(String, String)>) {
+    let mut mice = HashSet::new();
+    let mut keyboards = HashSet::new();
+    let mut num_devices = 0u32;
+    let cb_size = std::mem::size_of::<RAWINPUTDEVICELIST>() as u32;
+
+    let res = unsafe { GetRawInputDeviceList(ptr::null_mut(), &mut num_devices, cb_size) };
+    if res == u32::MAX || num_devices == 0 {
+        return (mice, keyboards);
+    }
+
+    let mut raw_list = vec![
+        RAWINPUTDEVICELIST {
+            hDevice: ptr::null_mut(),
+            dwType: 0
+        };
+        num_devices as usize
+    ];
+    let count = unsafe { GetRawInputDeviceList(raw_list.as_mut_ptr(), &mut num_devices, cb_size) };
+    if count == u32::MAX {
+        return (mice, keyboards);
+    }
+
+    for dev in raw_list.iter().take(count as usize) {
+        if dev.hDevice.is_null() {
+            continue;
+        }
+
+        let mut name_len: u32 = 0;
+        unsafe {
+            GetRawInputDeviceInfoW(dev.hDevice, RIDI_DEVICENAME, ptr::null_mut(), &mut name_len);
+        }
+
+        if name_len == 0 {
+            continue;
+        }
+
+        let mut name_buf = vec![0u16; name_len as usize];
+        let read_len = unsafe {
+            GetRawInputDeviceInfoW(
+                dev.hDevice,
+                RIDI_DEVICENAME,
+                name_buf.as_mut_ptr() as *mut c_void,
+                &mut name_len,
+            )
+        };
+
+        if read_len == u32::MAX {
+            continue;
+        }
+
+        let path = String::from_utf16_lossy(&name_buf)
+            .trim_matches('\0')
+            .trim()
+            .to_string();
+
+        if path.is_empty() {
+            continue;
+        }
+
+        let (vid, pid) = parse_vid_pid(&path);
+        if vid != "N/A" && pid != "N/A" {
+            if dev.dwType == RIM_TYPEMOUSE {
+                mice.insert((vid, pid));
+            } else if dev.dwType == RIM_TYPEKEYBOARD {
+                keyboards.insert((vid, pid));
+            }
+        }
+    }
+
+    (mice, keyboards)
+}
+
 pub fn get_usb_topology_info() -> AppResult<UsbTopologyInfo> {
+    let (known_mice, known_keyboards) = get_known_hid_vid_pids();
+
     let usb_wide: Vec<u16> = "USB\0".encode_utf16().collect();
     let set = unsafe {
         SetupDiGetClassDevsW(
@@ -1224,6 +1300,7 @@ pub fn get_usb_topology_info() -> AppResult<UsbTopologyInfo> {
     }
     let _set_guard = DevInfoSetGuard(set);
 
+    let mut all_root_hubs = HashSet::new();
     let mut groups: HashMap<String, Vec<UsbDeviceNode>> = HashMap::new();
     let mut dev_info = SP_DEVINFO_DATA {
         cbSize: std::mem::size_of::<SP_DEVINFO_DATA>() as u32,
@@ -1251,6 +1328,21 @@ pub fn get_usb_topology_info() -> AppResult<UsbTopologyInfo> {
         } else {
             String::new()
         };
+
+        let upper_id = instance_id.to_uppercase();
+
+        // Registramos todos los Root Hubs para reflejar el total de controladores físicos
+        if upper_id.starts_with("USB\\ROOT_HUB") {
+            all_root_hubs.insert(instance_id.clone());
+            idx += 1;
+            continue;
+        }
+
+        // 1. Filtrar sub-dispositivos (aquellos cuyos IDs contengan MI_ o Col01 o &COL)
+        if upper_id.contains("MI_") || upper_id.contains("COL01") || upper_id.contains("&COL") {
+            idx += 1;
+            continue;
+        }
 
         // Query FriendlyName or DeviceDesc
         let mut reg_type = 0u32;
@@ -1290,6 +1382,19 @@ pub fn get_usb_topology_info() -> AppResult<UsbTopologyInfo> {
             instance_id.clone()
         };
 
+        let upper_name = device_name.to_uppercase();
+
+        // 2. Filtrar concentradores y hubs genéricos internos
+        if upper_id.starts_with("USB\\GENERIC")
+            || upper_name.contains("CONCENTRADOR")
+            || upper_name.contains("ROOT HUB")
+            || upper_name.contains("GENERIC USB HUB")
+            || upper_name.contains("SUPERSPEED USB HUB")
+        {
+            idx += 1;
+            continue;
+        }
+
         // Climb parents until Host Controller / Root Hub
         let mut curr_inst = dev_info.DevInst;
         let mut root_hub_id = instance_id.clone();
@@ -1310,7 +1415,13 @@ pub fn get_usb_topology_info() -> AppResult<UsbTopologyInfo> {
                     .to_string();
 
                 let upper = p_id.to_uppercase();
-                if upper.starts_with("USB\\ROOT_HUB") || upper.starts_with("PCI\\") {
+                if upper.starts_with("USB\\ROOT_HUB") {
+                    all_root_hubs.insert(p_id.clone());
+                    root_hub_id = p_id;
+                    break;
+                } else if upper.starts_with("PCI\\")
+                    && !root_hub_id.to_uppercase().starts_with("USB\\ROOT_HUB")
+                {
                     root_hub_id = p_id;
                 }
             }
@@ -1320,30 +1431,73 @@ pub fn get_usb_topology_info() -> AppResult<UsbTopologyInfo> {
 
         let lower_name = device_name.to_lowercase();
         let lower_id = instance_id.to_lowercase();
+        let (vid, pid) = parse_vid_pid(&instance_id);
 
         let is_mouse = lower_name.contains("mouse")
             || lower_name.contains("ratón")
-            || lower_id.contains("mouse");
+            || lower_name.contains("raton")
+            || lower_id.contains("mouse")
+            || (vid != "N/A" && pid != "N/A" && known_mice.contains(&(vid.clone(), pid.clone())));
+
+        let is_keyboard = lower_name.contains("keyboard")
+            || lower_name.contains("teclado")
+            || lower_id.contains("keyboard")
+            || lower_id.contains("kbd")
+            || (vid != "N/A" && pid != "N/A" && known_keyboards.contains(&(vid.clone(), pid.clone())));
 
         let is_audio = lower_name.contains("audio")
             || lower_name.contains("sound")
             || lower_name.contains("headset")
             || lower_name.contains("auricular")
             || lower_name.contains("micrófono")
+            || lower_name.contains("microfono")
             || lower_name.contains("microphone")
-            || lower_name.contains("dac");
+            || lower_name.contains("dac")
+            || lower_name.contains("speakers")
+            || lower_name.contains("altavoces")
+            || lower_id.contains("audio");
 
-        // Filter root hub self-references from list of children
-        if !instance_id.to_uppercase().starts_with("USB\\ROOT_HUB") && !device_name.is_empty() {
-            groups.entry(root_hub_id).or_default().push(UsbDeviceNode {
-                device_name,
-                instance_id,
-                is_mouse,
-                is_audio,
-            });
+        // 3. Solo dispositivos principales (Ratón, Teclado, Audio)
+        if !(is_mouse || is_keyboard || is_audio) {
+            idx += 1;
+            continue;
         }
 
+        // Nombre descriptivo amigable para evitar "Dispositivo compuesto USB" genérico
+        let friendly_display_name = if is_mouse && !is_keyboard {
+            friendly_mouse_name(&instance_id, &vid, "USB")
+        } else if is_keyboard && !is_mouse {
+            friendly_keyboard_name(&instance_id, &vid, "USB")
+        } else if is_mouse && is_keyboard {
+            if lower_id.contains("mouse") {
+                friendly_mouse_name(&instance_id, &vid, "USB")
+            } else {
+                friendly_keyboard_name(&instance_id, &vid, "USB")
+            }
+        } else if is_audio {
+            if device_name.to_lowercase().contains("dispositivo") {
+                "Dispositivo de Audio USB".to_string()
+            } else {
+                device_name
+            }
+        } else {
+            device_name
+        };
+
+        groups.entry(root_hub_id).or_default().push(UsbDeviceNode {
+            device_name: friendly_display_name,
+            instance_id,
+            is_mouse,
+            is_audio,
+            is_keyboard,
+        });
+
         idx += 1;
+    }
+
+    // Asegura que todos los Root Hubs detectados aparezcan en la lista de controladores
+    for hub in all_root_hubs {
+        groups.entry(hub).or_default();
     }
 
     let mut controllers = Vec::new();
@@ -1354,7 +1508,7 @@ pub fn get_usb_topology_info() -> AppResult<UsbTopologyInfo> {
 
     for (c_idx, ctrl_id) in group_keys.into_iter().enumerate() {
         let mut devices = groups.remove(&ctrl_id).unwrap_or_default();
-        // Deduplicate devices by instance_id
+        // Deduplica dispositivos por instance_id
         let mut seen = HashSet::new();
         devices.retain(|d| seen.insert(d.instance_id.clone()));
 

@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[cfg(not(windows))]
 use crate::error::{AppError, AppResult};
@@ -15,6 +15,7 @@ pub struct PowerPlanApplyResult {
     /// Si el plan (ej. Ultimate Performance) no estaba instanciado y fue duplicado desde
     /// la plantilla nativa de Windows, guarda el GUID generado para limpieza al revertir.
     pub duplicated_guid: Option<String>,
+    pub fallback_message: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -260,7 +261,7 @@ mod win32_impl {
         })
     }
 
-    pub fn activate_or_duplicate_plan(target_guid_str: &str) -> AppResult<PowerPlanApplyResult> {
+    fn activate_or_duplicate_plan_internal(target_guid_str: &str) -> AppResult<PowerPlanApplyResult> {
         let target_guid = parse_guid(target_guid_str)?;
 
         // Verifica si el esquema ya existe instanciado en el almacén de políticas del usuario/SO
@@ -318,7 +319,32 @@ mod win32_impl {
         Ok(PowerPlanApplyResult {
             active_plan,
             duplicated_guid,
+            fallback_message: None,
         })
+    }
+
+    pub fn activate_or_duplicate_plan(target_guid_str: &str) -> AppResult<PowerPlanApplyResult> {
+        match activate_or_duplicate_plan_internal(target_guid_str) {
+            Ok(res) => Ok(res),
+            Err(err) => {
+                // Si el plan Ultimate Performance (e9a42b02...) falla (ej. Win32 0x32 ERROR_NOT_SUPPORTED
+                // en ediciones estándar de Windows), hacer fallback automático al plan Alto Rendimiento (8c5e7fda...).
+                if target_guid_str.eq_ignore_ascii_case("e9a42b02-d5df-448d-aa00-03f14749eb61") {
+                    const HIGH_PERF_GUID: &str = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
+                    match activate_or_duplicate_plan_internal(HIGH_PERF_GUID) {
+                        Ok(mut fallback_res) => {
+                            fallback_res.fallback_message = Some(
+                                "El plan Ultimate Performance no está soportado en esta edición de Windows. Se ha aplicado el plan Alto Rendimiento.".to_string(),
+                            );
+                            Ok(fallback_res)
+                        }
+                        Err(_) => Err(err),
+                    }
+                } else {
+                    Err(err)
+                }
+            }
+        }
     }
 
     pub fn restore_plan(

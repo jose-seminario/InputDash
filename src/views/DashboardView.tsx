@@ -607,59 +607,200 @@ export function DashboardView() {
           </div>
         )}
 
-        <div className="usb-controllers-grid" style={{ marginTop: "12px" }}>
+        {/* RESUMEN DE CONTROLADORES USB */}
+        <div
+          className="usb-summary-banner"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "10px 16px",
+            background: "rgba(0, 240, 255, 0.05)",
+            border: "1px solid rgba(0, 240, 255, 0.2)",
+            borderRadius: "6px",
+            marginTop: "12px",
+            marginBottom: "12px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontSize: "16px" }}>⚡</span>
+            <span style={{ fontWeight: 600, fontSize: "13px", color: "var(--text-primary)" }}>
+              Controladores USB detectados: {usbTopology?.controllers.length ?? 0}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {usbTopology?.controllers.some(
+              (c) => c.devices.length === 1 && c.devices[0].is_mouse,
+            ) && (
+              <span className="badge badge-applied" style={{ fontSize: "11px" }}>
+                ✓ Ratón en Canal Aislado (Óptimo)
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="usb-controllers-grid">
           {isUsbLoading ? (
             <div className="empty-state">Explorando árbol de controladores USB...</div>
           ) : !usbTopology || usbTopology.controllers.length === 0 ? (
             <div className="empty-state">No se pudieron enumerar controladores USB.</div>
           ) : (
-            usbTopology.controllers.map((ctrl) => (
-              <div
-                key={ctrl.controller_id}
-                className={`usb-controller-card ${ctrl.has_contention ? "controller-contention" : ""}`}
-              >
-                <div className="usb-ctrl-header">
-                  <div>
-                    <h3 className="usb-ctrl-title">{ctrl.controller_name}</h3>
-                    <span className="meta-mono" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
-                      {ctrl.controller_id}
-                    </span>
-                  </div>
-                  <span className={`badge ${ctrl.has_contention ? "badge-blocked" : "badge-applied"}`}>
-                    {ctrl.has_contention ? "Contención Detectada" : "Canal Aislado"}
-                  </span>
-                </div>
+            usbTopology.controllers.map((ctrl) => {
+              const hasOnlyMouse =
+                ctrl.devices.length === 1 && ctrl.devices[0].is_mouse;
 
-                <div className="usb-devices-list">
-                  {ctrl.devices.length === 0 ? (
-                    <div className="empty-state" style={{ padding: "8px" }}>
-                      Sin dispositivos secundarios registrados en este concentrador.
+              return (
+                <div
+                  key={ctrl.controller_id}
+                  className={`usb-controller-card ${ctrl.has_contention ? "controller-contention" : ""}`}
+                >
+                  <div className="usb-ctrl-header">
+                    <div>
+                      <h3 className="usb-ctrl-title">{ctrl.controller_name}</h3>
+                      <details
+                        style={{
+                          marginTop: "2px",
+                          fontSize: "11px",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        <summary style={{ cursor: "pointer", opacity: 0.7 }}>
+                          Detalles del Hub
+                        </summary>
+                        <span
+                          className="meta-mono"
+                          style={{
+                            fontSize: "10px",
+                            wordBreak: "break-all",
+                            display: "block",
+                            marginTop: "2px",
+                          }}
+                        >
+                          {ctrl.controller_id}
+                        </span>
+                      </details>
                     </div>
-                  ) : (
-                    ctrl.devices.map((dev) => (
-                      <div key={dev.instance_id} className="usb-dev-row">
-                        <div className="usb-dev-info">
-                          <span className="usb-dev-name">{dev.device_name}</span>
-                          <span className="meta-mono" style={{ fontSize: "10px", color: "var(--text-secondary)" }}>
-                            {dev.instance_id}
-                          </span>
-                        </div>
-                        <div className="usb-dev-badges">
-                          {dev.is_mouse && <span className="badge badge-warn">Mouse</span>}
-                          {dev.is_audio && <span className="badge badge-default">Audio USB</span>}
-                        </div>
+                    <div>
+                      {hasOnlyMouse ? (
+                        <span className="badge badge-applied">
+                          Canal Aislado (Óptimo)
+                        </span>
+                      ) : ctrl.has_contention ? (
+                        <span className="badge badge-blocked">
+                          Contención Detectada
+                        </span>
+                      ) : ctrl.devices.length === 0 ? (
+                        <span className="badge badge-default">Puerto Libre</span>
+                      ) : (
+                        <span className="badge badge-default">
+                          Conectados ({ctrl.devices.length})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="usb-devices-list" style={{ marginTop: "10px" }}>
+                    {ctrl.devices.length === 0 ? (
+                      <div
+                        className="empty-state"
+                        style={{ padding: "8px", fontSize: "12px" }}
+                      >
+                        Sin periféricos principales en este concentrador.
                       </div>
-                    ))
+                    ) : (
+                      ctrl.devices.map((dev) => (
+                        <div
+                          key={dev.instance_id}
+                          className="usb-dev-row"
+                          style={{
+                            padding: "8px 10px",
+                            borderBottom: "1px solid rgba(255, 255, 255, 0.05)",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                            gap: "8px",
+                          }}
+                        >
+                          <div className="usb-dev-info" style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <span
+                                className="usb-dev-name"
+                                style={{ fontWeight: 600, fontSize: "13px" }}
+                              >
+                                {dev.device_name}
+                              </span>
+                              <div
+                                className="usb-dev-badges"
+                                style={{ display: "inline-flex", gap: "4px" }}
+                              >
+                                {dev.is_mouse && (
+                                  <span
+                                    className="badge badge-warn"
+                                    style={{ padding: "1px 6px", fontSize: "10px" }}
+                                  >
+                                    [RATÓN]
+                                  </span>
+                                )}
+                                {dev.is_keyboard && (
+                                  <span
+                                    className="badge badge-default"
+                                    style={{ padding: "1px 6px", fontSize: "10px" }}
+                                  >
+                                    [TECLADO]
+                                  </span>
+                                )}
+                                {dev.is_audio && (
+                                  <span
+                                    className="badge badge-blocked"
+                                    style={{ padding: "1px 6px", fontSize: "10px" }}
+                                  >
+                                    [AUDIO]
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <details
+                              style={{
+                                marginTop: "4px",
+                                fontSize: "11px",
+                                color: "var(--text-secondary)",
+                              }}
+                            >
+                              <summary style={{ cursor: "pointer", opacity: 0.6 }}>
+                                Ver ID de hardware
+                              </summary>
+                              <div
+                                className="meta-mono"
+                                style={{
+                                  fontSize: "10px",
+                                  marginTop: "2px",
+                                  wordBreak: "break-all",
+                                }}
+                              >
+                                {dev.instance_id}
+                              </div>
+                            </details>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {ctrl.contention_details && (
+                    <div className="inline-error" style={{ marginTop: "8px" }}>
+                      {ctrl.contention_details}
+                    </div>
                   )}
                 </div>
-
-                {ctrl.contention_details && (
-                  <div className="inline-error" style={{ marginTop: "8px" }}>
-                    {ctrl.contention_details}
-                  </div>
-                )}
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </section>

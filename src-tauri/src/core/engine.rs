@@ -585,6 +585,11 @@ impl Engine {
         }
 
         let verified_human = format!("{} ({})", reread_plan.friendly_name, reread_plan.guid);
+        let fallback_msg = apply_res.fallback_message.clone();
+        let log_note = fallback_msg
+            .as_deref()
+            .unwrap_or("Plan de energía activado y verificado vía PowrProf con GUID original respaldado.");
+
         log::record_change(
             &self.db,
             &tweak.id,
@@ -593,7 +598,7 @@ impl Engine {
             &current_human,
             &verified_human,
             true,
-            "Plan de energía activado y verificado vía PowrProf con GUID original respaldado.",
+            log_note,
         )?;
 
         let all_tweaks = self.list_tweaks_with_status();
@@ -603,12 +608,15 @@ impl Engine {
             .cloned()
             .unwrap_or_else(|| self.inspect_tweak(tweak));
 
+        let message = fallback_msg
+            .unwrap_or_else(|| format!("Plan '{}' activado y verificado.", tweak.nombre));
+
         Ok(MutationOutcome {
             tweak: updated_view,
             all_tweaks,
             restore_point_created,
             restore_point_warning,
-            message: format!("Plan '{}' activado y verificado.", tweak.nombre),
+            message,
         })
     }
 
@@ -731,6 +739,7 @@ impl Engine {
         let mut applied_ids = Vec::new();
         let mut any_rp_created = false;
         let mut first_rp_warning: Option<String> = None;
+        let mut fallback_notes = Vec::new();
 
         for tid in ids {
             let outcome = self.apply_tweak(tid)?;
@@ -741,6 +750,9 @@ impl Engine {
             if first_rp_warning.is_none() && outcome.restore_point_warning.is_some() {
                 first_rp_warning = outcome.restore_point_warning;
             }
+            if outcome.message.contains("no está soportado") {
+                fallback_notes.push(outcome.message);
+            }
         }
 
         let all_tweaks = self.list_tweaks_with_status();
@@ -750,17 +762,24 @@ impl Engine {
             "Equilibrado"
         };
 
+        let base_msg = format!(
+            "Preset '{}' aplicado y verificado con éxito ({} ajustes seguros).",
+            preset_label,
+            ids.len()
+        );
+        let message = if !fallback_notes.is_empty() {
+            format!("{base_msg} {}", fallback_notes.join(" "))
+        } else {
+            base_msg
+        };
+
         Ok(PresetOutcome {
             preset_id: preset_id.to_string(),
             applied_ids,
             all_tweaks,
             restore_point_created: any_rp_created,
             restore_point_warning: first_rp_warning,
-            message: format!(
-                "Preset '{}' aplicado y verificado con éxito ({} ajustes seguros).",
-                preset_label,
-                ids.len()
-            ),
+            message,
         })
     }
 
