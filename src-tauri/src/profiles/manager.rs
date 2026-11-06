@@ -188,7 +188,7 @@ impl ProfileManager {
                 (
                     prof.high_priority,
                     prof.timer_resolution_05ms,
-                    prof.cpu_sets_isolate.unwrap_or(false),
+                    prof.cpu_sets_isolate,
                     prof.manual_affinity_mask,
                 )
             };
@@ -206,7 +206,7 @@ impl ProfileManager {
             // B. Temporizador Global de 0.5 ms
             let mut timer_res_acquired = None;
             if timer_req {
-                match TimerResolutionGuard::acquire(5000) {
+                match TimerResolutionGuard::acquire_05ms() {
                     Ok(g) => {
                         status_msg_parts.push("Timer 0.5 ms activo".to_string());
                         timer_res_acquired = Some(g);
@@ -295,8 +295,8 @@ impl ProfileManager {
         let is_restricted = guard.cpu_topology.is_hybrid || guard.cpu_topology.is_x3d;
         let mut prof_to_save = updated;
 
-        if !is_restricted && prof_to_save.cpu_sets_isolate.unwrap_or(false) {
-            prof_to_save.cpu_sets_isolate = Some(false);
+        if !is_restricted && prof_to_save.cpu_sets_isolate {
+            prof_to_save.cpu_sets_isolate = false;
             return Err("Tu CPU es monolítica. El aislamiento de núcleos no es necesario y podría causar inestabilidad.".to_string());
         }
         if is_restricted && prof_to_save.manual_affinity_mask.is_some() {

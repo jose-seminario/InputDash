@@ -352,6 +352,9 @@ impl BlindSessionManager {
             degrees_of_freedom: 1.0,
             p_value: 1.0,
             is_significant: false,
+            cohens_d: None,
+            mann_whitney_u: None,
+            mann_whitney_p: None,
         });
 
         // En latencia de reacción: menor tiempo = mejor

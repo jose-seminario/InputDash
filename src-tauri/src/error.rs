@@ -1,4 +1,4 @@
-﻿use serde::Serialize;
+use serde::Serialize;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -81,6 +81,9 @@ pub enum AppError {
 
     #[error("Error en reporte TEL: {0}")]
     TelReport(String),
+
+    #[error("Error interno del sistema: {0}")]
+    Internal(String),
 }
 
 #[derive(Serialize)]
@@ -113,6 +116,7 @@ impl AppError {
             Self::FrametimeAnalysis(_) => "FRAMETIME_ANALYSIS_ERROR",
             Self::DpcAnalysis(_) => "DPC_ANALYSIS_ERROR",
             Self::TelReport(_) => "TEL_REPORT_ERROR",
+            Self::Internal(_) => "INTERNAL_ERROR",
         }
     }
 }

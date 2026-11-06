@@ -84,10 +84,6 @@ impl Engine {
         }
     }
 
-    pub fn db(&self) -> Arc<Database> {
-        Arc::clone(&self.db)
-    }
-
     pub fn record_ab_validation(&self, tweak_id: &str, metric: &str, verdict: &str) -> AppResult<()> {
         self.db.record_ab_validation(tweak_id, metric, verdict)
     }
